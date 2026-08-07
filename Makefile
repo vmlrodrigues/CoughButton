@@ -23,7 +23,15 @@ VERSION ?= $(shell cat $(CURDIR)/VERSION 2>/dev/null || echo "0.0.0")
 # Apple distribution config (same Developer ID / Team as my other apps).
 RELEASE_SIGN_IDENTITY := Developer ID Application: Victor Rodrigues (9N354A3UZK)
 RELEASE_TEAM          := 9N354A3UZK
-NOTARIZE_PROFILE      ?= coughbutton-notarization
+# notarytool keychain profile. A profile is a credential nickname, not a per-app
+# identity, so any profile on this machine will do — sharing one between
+# projects shares only the login, never the notarisation.
+#
+# Resolution order: the environment, then a gitignored .notarize-profile file,
+# then the default. The file exists so a machine using an existing profile
+# doesn't have to pass the name on every release, without that name being
+# committed to a public repo.
+NOTARIZE_PROFILE      ?= $(shell cat $(CURDIR)/.notarize-profile 2>/dev/null || echo coughbutton-notarization)
 
 # XCTest ships with Xcode, not the Command Line Tools. Rather than require a
 # `sudo xcode-select -s`, point this one command at the full toolchain when it

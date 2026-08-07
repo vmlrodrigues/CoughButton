@@ -20,3 +20,5 @@ BRIEF.md
 
 # Apple private keys — must never be committed
 *.p8
+# Local notarytool profile name (machine-specific, may name another project)
+.notarize-profile

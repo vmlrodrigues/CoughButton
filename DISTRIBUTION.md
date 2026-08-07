@@ -40,9 +40,17 @@ private key** (Keychain Access ▸ right-click ▸ Export) and import it.
 
 ### 2. App Store Connect API key
 
-This is the bit that's easy to forget, so here it is in full. An existing key
-from another project works, but a key of its own is preferable — see the note on
-blast radius in step 3.
+**If you already have a notarytool profile on this machine, skip to step 3 —
+any profile works.** A profile is a credential nickname, not a per-app identity;
+sharing one between projects shares the login and nothing else. Each submission
+is still notarised independently and gets its own ticket.
+
+The one thing that should make you create a dedicated key is **the key leaving
+this machine** — into GitHub Actions secrets, or to a contributor. A shared key
+in one repo's secrets can publish every app on the account. Until then, reusing
+an existing key is normal practice and costs you nothing.
+
+Creating a key from scratch, since it's done rarely enough to forget:
 
 1. Sign in at **https://appstoreconnect.apple.com**.
 2. Go to **Users and Access**, then the **Integrations** tab, then
@@ -91,7 +99,20 @@ ID and Issuer ID don't match each other — the usual mistake is pasting the Key
 ID into `--issuer`.
 
 `coughbutton-notarization` is what the Makefile defaults to, so once this
-succeeds nothing else needs configuring. Confirm with:
+succeeds nothing else needs configuring.
+
+**Using a profile you already have instead?** Write its name into
+`.notarize-profile` and the Makefile picks it up automatically, so you never
+have to remember a flag. The file is gitignored, which is the point — a
+machine-specific profile name (possibly naming another project) stays out of a
+public repo:
+
+```bash
+echo "your-existing-profile-name" > .notarize-profile
+```
+
+Resolution order is `NOTARIZE_PROFILE` in the environment, then
+`.notarize-profile`, then the default. Confirm whichever you chose with:
 
 ```bash
 make check
