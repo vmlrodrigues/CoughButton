@@ -40,13 +40,35 @@ private key** (Keychain Access ▸ right-click ▸ Export) and import it.
 
 ### 2. App Store Connect API key
 
-Create one at appstoreconnect.apple.com ▸ Users and Access ▸ **Integrations** ▸
-**App Store Connect API** ▸ **+**, access **Developer**. Download the
-`AuthKey_XXXXXXXX.p8` — it is only downloadable once — and note the **Key ID**
-and **Issuer ID**.
+This is the bit that's easy to forget, so here it is in full. An existing key
+from another project works, but a key of its own is preferable — see the note on
+blast radius in step 3.
 
-An existing key from another project works too, but a key of its own is
-preferable; see the note on blast radius below.
+1. Sign in at **https://appstoreconnect.apple.com**.
+2. Go to **Users and Access**, then the **Integrations** tab, then
+   **App Store Connect API** in the sidebar. Stay on **Team Keys** — an
+   Individual Key is tied to one person and is not what you want here.
+3. Click **+** to generate a key.
+   - **Name:** something recognisable, e.g. `CoughButton notarisation`.
+   - **Access:** **Developer**. That is sufficient for notarisation; don't grant
+     Admin or App Manager, this key only needs to submit builds.
+4. Click **Generate**, then **Download** the `AuthKey_XXXXXXXX.p8`.
+
+   > **Apple lets you download it exactly once.** There is no second chance —
+   > if you lose it, the only fix is to revoke the key and generate a new one.
+
+5. From that same page note two values:
+   - **Key ID** — a 10-character string shown in the key's row, and also in the
+     filename (`AuthKey_<KEYID>.p8`).
+   - **Issuer ID** — a UUID shown once near the top of the page, above the key
+     list. It is the same for every key on the account.
+
+Move the key somewhere private and lock it down — **not** into this repo (`.p8`
+is gitignored, but don't rely on that):
+
+```bash
+mkdir -p ~/.appstoreconnect/private_keys && mv ~/Downloads/AuthKey_*.p8 ~/.appstoreconnect/private_keys/ && chmod 600 ~/.appstoreconnect/private_keys/*.p8
+```
 
 ### 3. notarytool keychain profile
 
@@ -56,13 +78,24 @@ independently and gets its own ticket stapled to its own binary, whichever
 profile authenticated it. Sharing a profile between projects shares only the
 credential, never the notarisation.
 
-Store the key once so releases notarise non-interactively:
+Store the key in the keychain once, so releases notarise without prompting.
+Substitute your own Key ID, Issuer ID and filename:
 
 ```bash
-xcrun notarytool store-credentials "coughbutton-notarization" --key ~/path/to/AuthKey_XXXXXXXX.p8 --key-id KEY_ID --issuer ISSUER_ID
+xcrun notarytool store-credentials "coughbutton-notarization" --key ~/.appstoreconnect/private_keys/AuthKey_XXXXXXXX.p8 --key-id XXXXXXXXXX --issuer xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 ```
 
-That name is what the Makefile defaults to, so nothing else needs configuring.
+It prints `Validating your credentials...` and then
+`Credentials validated.` / `Stored credentials`. If it fails here the key, Key
+ID and Issuer ID don't match each other — the usual mistake is pasting the Key
+ID into `--issuer`.
+
+`coughbutton-notarization` is what the Makefile defaults to, so once this
+succeeds nothing else needs configuring. Confirm with:
+
+```bash
+make check
+```
 
 Using a **key of its own** rather than one shared with another project is worth
 it for blast radius: revoking it later stops CoughButton releases and leaves

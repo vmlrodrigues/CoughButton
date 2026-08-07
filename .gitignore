@@ -17,3 +17,6 @@ holding/
 BRIEF.md
 # Local Claude Code settings
 .claude/
+
+# Apple private keys — must never be committed
+*.p8
