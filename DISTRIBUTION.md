@@ -40,13 +40,21 @@ private key** (Keychain Access ▸ right-click ▸ Export) and import it.
 
 ### 2. App Store Connect API key
 
-Reuse the same key as BarPilot/Siloquy if you still have it. To make a fresh
-one: appstoreconnect.apple.com ▸ Users and Access ▸ **Integrations** ▸
+Create one at appstoreconnect.apple.com ▸ Users and Access ▸ **Integrations** ▸
 **App Store Connect API** ▸ **+**, access **Developer**. Download the
 `AuthKey_XXXXXXXX.p8` — it is only downloadable once — and note the **Key ID**
 and **Issuer ID**.
 
+An existing key from another project works too, but a key of its own is
+preferable; see the note on blast radius below.
+
 ### 3. notarytool keychain profile
+
+A profile is **not** per-app — it is a nickname in your keychain for an App
+Store Connect API key, i.e. a login credential. Every submission is notarised
+independently and gets its own ticket stapled to its own binary, whichever
+profile authenticated it. Sharing a profile between projects shares only the
+credential, never the notarisation.
 
 Store the key once so releases notarise non-interactively:
 
@@ -54,10 +62,17 @@ Store the key once so releases notarise non-interactively:
 xcrun notarytool store-credentials "coughbutton-notarization" --key ~/path/to/AuthKey_XXXXXXXX.p8 --key-id KEY_ID --issuer ISSUER_ID
 ```
 
-Or reuse an existing profile without creating a new one:
+That name is what the Makefile defaults to, so nothing else needs configuring.
+
+Using a **key of its own** rather than one shared with another project is worth
+it for blast radius: revoking it later stops CoughButton releases and leaves
+your other apps alone. Create one at appstoreconnect.apple.com ▸ Users and
+Access ▸ Integrations ▸ App Store Connect API, access **Developer**.
+
+Any existing profile also works, if you'd rather not set one up yet:
 
 ```bash
-make release VERSION=0.1.0 NOTARIZE_PROFILE=barpilot-notarization
+make release VERSION=0.1.0 NOTARIZE_PROFILE=some-other-profile
 ```
 
 ### 4. Tools
