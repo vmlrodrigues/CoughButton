@@ -43,7 +43,7 @@ public struct MeetingSnapshot: Equatable, Sendable {
 public enum HotkeyPhase: Sendable { case began, ended }
 
 /// Poll cadence and the tolerances around losing sight of the meeting.
-private enum Tuning {
+enum Tuning {
     static let tickInterval: TimeInterval = 0.1
     /// Consecutive misses tolerated before declaring the meeting over. Absorbs
     /// the brief reference invalidation a Teams re-render causes, so the menu
@@ -54,7 +54,10 @@ private enum Tuning {
 }
 
 /// Confined to `MeetingController.queue`; never touched from anywhere else.
-private final class MeetingWorker: @unchecked Sendable {
+/// Internal rather than private so its poll/re-discovery logic is testable —
+/// that logic decides when the menu bar says "no meeting", which is worth
+/// getting right.
+final class MeetingWorker: @unchecked Sendable {
 
     private let client: MeetingClient
     private var misses = 0

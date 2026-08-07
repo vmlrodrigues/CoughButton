@@ -1,5 +1,11 @@
 # CoughButton
 
+![Platform](https://img.shields.io/badge/platform-macOS%2013.0%2B-brightgreen)
+![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-M1%2B-black?logo=apple&logoColor=white)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+[![Download for Mac](https://img.shields.io/badge/Download_for_Mac-007AFF?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/vmlrodrigues/CoughButton/releases/latest/download/CoughButton.dmg)
+
 Global hotkeys for your microphone, camera and raised hand in **Microsoft
 Teams** — working while Teams is in the background, and showing you the real
 state in your menu bar.
@@ -60,12 +66,20 @@ whatever it was before you held it, and if that state was unreadable it ends
 
 ## Install
 
-Download the DMG from [Releases](https://github.com/vmlrodrigues/CoughButton/releases),
+[**Download the latest DMG**](https://github.com/vmlrodrigues/CoughButton/releases/latest/download/CoughButton.dmg),
 drag CoughButton to Applications, and launch it. It is signed with a Developer
 ID and notarised by Apple. It updates itself from GitHub Releases, verifying the
 signing team and Gatekeeper before installing anything.
 
 On first launch it will ask for Accessibility permission and open Settings.
+
+> [!NOTE]
+> **If the menu-bar icon isn't visible after launch, your menu bar is probably
+> full.** macOS inserts new status items toward the left/centre, where a crowded
+> bar — especially on a notched Mac — can push them out of sight. A free
+> menu-bar manager like **[Ice](https://github.com/jordanbaird/Ice)** lets you
+> see and rearrange hidden items. You can also ⌘-drag menu-bar items to
+> reposition them.
 
 ## Build from source
 

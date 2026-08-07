@@ -149,7 +149,7 @@ probe/                   the AX investigation tools (axdump, axctl, …) — sti
 
 ## Testing
 
-`Tests/CoughButtonKitTests` — 66 tests, no AX or Teams required. `FakeMeetingClient`
+`Tests/CoughButtonKitTests` — 78 tests, no Teams required. `FakeMeetingClient`
 models the cases that actually bite: presses that are accepted but don't take
 (stale element), presses that can't be delivered, and unreadable state. Keep
 `Actuator`'s `wait` injectable so retry logic runs at full speed.

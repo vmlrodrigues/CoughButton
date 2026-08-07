@@ -24,8 +24,9 @@ First release.
   a Start-at-Login toggle.
 - Silent auto-update from GitHub Releases, gated to Developer ID builds and
   verifying signing team + Gatekeeper before installing.
-- 66 unit tests covering the label→state inversion, actuation and retry logic,
-  push-to-talk restore policy, shortcut normalisation and settings persistence.
+- 78 unit tests covering the label→state inversion, actuation and retry logic,
+  the poll loop's re-discovery tolerances, push-to-talk restore policy,
+  shortcut normalisation and settings persistence.
 
 ### Notes
 

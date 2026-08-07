@@ -20,6 +20,12 @@ struct CoughButtonApp {
             StatusIconDump.run(outputDir: args[flag + 1])
             return
         }
+        if let flag = args.firstIndex(of: "--render-settings"), flag + 1 < args.count {
+            app.setActivationPolicy(.accessory)
+            let height = flag + 2 < args.count ? (Double(args[flag + 2]) ?? 460) : 460
+            SettingsPreview.run(outputDir: args[flag + 1], height: height)
+            return
+        }
 
         // Held for the lifetime of the process: NSApplication.delegate is weak,
         // and main() does not return until the app quits.

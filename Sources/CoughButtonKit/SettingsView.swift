@@ -127,7 +127,7 @@ public struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(width: 480)
-        .frame(minHeight: 460)
+        .frame(minHeight: 420)
         .onAppear { model.startWatching() }
         .onDisappear { model.stopWatching() }
     }
@@ -205,8 +205,22 @@ public final class SettingsWindowController {
 
     /// AppKit persists the frame under this key; we read it directly to tell a
     /// first run from a restored one.
-    private static let autosaveName = "CoughButtonSettings"
+    /// Versioned: bumping it retires frames saved by an older build, which is
+    /// how a bad remembered size gets corrected rather than restored forever.
+    private static let autosaveName = "SettingsWindow.v2"
     private static var frameDefaultsKey: String { "NSWindow Frame \(autosaveName)" }
+
+    static let contentWidth: CGFloat = 480
+
+    /// Tall enough that nothing is clipped and the Form never has to scroll.
+    ///
+    /// The granted case is measured: `--render-settings` reports the view's
+    /// `fittingSize` as 607pt, hence 620. The ungranted figure allows for the
+    /// permission warning, which is a whole extra section — without the extra
+    /// room "General" drops off the bottom, which is the bug this fixes.
+    private static func preferredHeight() -> CGFloat {
+        AX.isTrusted ? 620 : 740
+    }
 
     public init(model: SettingsViewModel) {
         self.model = model
@@ -221,15 +235,21 @@ public final class SettingsWindowController {
         let hosting = NSHostingController(rootView: SettingsView(model: model))
         let newWindow = NSWindow(contentViewController: hosting)
         newWindow.title = "CoughButton Settings"
-        newWindow.styleMask = [.titled, .closable, .miniaturizable]
+        // Resizable so an unusual display or accessibility text size isn't
+        // stuck with our number; the autosaved frame remembers any change.
+        newWindow.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         newWindow.isReleasedWhenClosed = false
 
-        // Remember where the user dragged it. `setFrameAutosaveName` restores a
-        // saved frame straight away, so only centre when there isn't one —
-        // otherwise every launch would yank the window back to the middle.
+        // Order matters: `setFrameAutosaveName` restores any saved frame
+        // immediately, so it has to come first — sizing before it would just be
+        // overwritten by the restore. Only impose our own size and position when
+        // there is nothing saved, otherwise we'd undo the user's own placement.
         let hasSavedFrame = UserDefaults.standard.object(forKey: Self.frameDefaultsKey) != nil
         newWindow.setFrameAutosaveName(Self.autosaveName)
-        if !hasSavedFrame { newWindow.center() }
+        if !hasSavedFrame {
+            newWindow.setContentSize(NSSize(width: Self.contentWidth, height: Self.preferredHeight()))
+            newWindow.center()
+        }
 
         window = newWindow
         NSApp.activate(ignoringOtherApps: true)
