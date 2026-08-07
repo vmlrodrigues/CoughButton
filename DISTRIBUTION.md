@@ -118,6 +118,14 @@ Resolution order is `NOTARIZE_PROFILE` in the environment, then
 make check
 ```
 
+**Switching to a dedicated key later is safe and costs nothing.** The API key is
+only how you authenticate a submission; what identifies the app is the Developer
+ID certificate, which doesn't change. Notarisation happens once per binary and
+the ticket is stapled into it, so already-published releases keep working
+forever and the old key can be revoked without breaking anything shipped. To
+switch: create the key, `store-credentials` it as `coughbutton-notarization`,
+then delete `.notarize-profile` — that name is already the Makefile default.
+
 Using a **key of its own** rather than one shared with another project is worth
 it for blast radius: revoking it later stops CoughButton releases and leaves
 your other apps alone. Create one at appstoreconnect.apple.com ▸ Users and
