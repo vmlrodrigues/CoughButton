@@ -1,0 +1,19 @@
+.build/
+.swiftpm/
+.release-staging/
+CoughButton.app/
+CoughButton.dmg
+.notarize-app.zip
+.DS_Store
+probe/axgate
+probe/axdump
+probe/axctl
+probe/axobserve
+probe/axpoll
+probe/axwindows
+holding/
+
+# Private project brief — describes the originating environment, not for publication
+BRIEF.md
+# Local Claude Code settings
+.claude/
