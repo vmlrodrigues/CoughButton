@@ -112,6 +112,45 @@ poll them at 10–20 Hz for essentially nothing.
   observed, so notifications are best treated as an accelerator rather than the
   source of truth. Cheap polling is the primary mechanism.
 
+### There is no boolean state attribute — settled
+
+The obvious hope is that Teams sets `aria-pressed` on the mic button, which
+Chromium would surface as a numeric `AXValue`, giving a language-independent
+read. **It does not.** All 45 attributes of the in-meeting `microphone-button`
+were enumerated with `axctl attrs` during a live meeting:
+
+| Attribute | Muted | Live |
+|---|---|---|
+| `AXRole` | `AXButton` | `AXButton` |
+| `AXSubrole` | *unsupported* | *unsupported* |
+| `AXValue` | *empty* | *empty* |
+| `AXSelected` | `0` | `0` |
+| **`AXDescription`** | **"Unmute mic"** | **"Mute mic"** |
+
+`AXDescription` is the *only* attribute that changes. `AXSelected` looks
+promising and is not — it stays `0` across the toggle. `video-button` has the
+identical shape. So the label verb genuinely is the only state signal available,
+and the English dependency cannot be removed from within the AX tree.
+
+Note the contrast with elsewhere in Teams: the app-bar tabs are
+`AXCheckBox[AXToggleButton]` with a real `value`, and the **pre-join** mic is
+`AXCheckBox[AXSwitch]` with `value=0/1`. Teams does use proper toggle semantics
+— just not on the in-meeting controls. Testing the pre-join switch tells you
+nothing about the in-meeting button; they are different implementations.
+
+**Two useful things did fall out of that dump:**
+
+- **`AXKeyShortcutsValue`** carries the control's *current* Teams shortcut
+  (`⇧ ⌘ M`, `⇧ ⌘ O`) as a proper attribute. It is language-independent and
+  reflects user remapping, so it is a good secondary way to identify which
+  control is which if the DOM ids ever change.
+- The route to locale independence is **outside** the AX tree: detect whether
+  the microphone is actually capturing (CoreAudio / the system mic-in-use
+  signal) and use that to *calibrate* the labels once. Observe which label is
+  present while the hardware is live, and you have learned the mapping for any
+  language, automatically, without shipping a locale table. That is the real
+  follow-up.
+
 ### Three gotchas
 
 1. **Modal dialogs blank the tree.** Teams' "Invite people to join you" popup is
@@ -148,11 +187,7 @@ key-up at all. Teams' own `⌥Space` is not used because it needs Teams focused.
 
 - **Label verbs are English.** The DOM ids are locale-independent but the state
   read is not. On a non-English Teams the controls still work; the indicator
-  shows "unknown". A cleaner fix is to learn the two label strings at runtime by
-  observing one press, rather than shipping a locale table.
-- **Whether `aria-pressed` surfaces as a boolean attribute on
-  `microphone-button` was not tested.** If it does, it would remove the language
-  dependency outright. This is the single most useful follow-up probe.
+  shows "unknown". See below — this is not fixable from the AX tree alone.
 - **DOM ids are Microsoft's to rename.** They are stable across a session and
   look deliberate, but an update can change them. Mitigated with an ordered
   fallback — DOM id → toolbar position → label match — surfacing a clear

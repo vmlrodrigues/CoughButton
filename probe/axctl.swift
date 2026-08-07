@@ -103,6 +103,39 @@ case "find", "state":
         if cmd == "find" { print("    actions=\(h.actions.joined(separator: ",")))  path=\(h.path)") }
     }
 
+case "attrs":
+    // Enumerate EVERY attribute on a matched element, not just the handful the
+    // dumper prints. This is how you find state hiding somewhere unexpected —
+    // e.g. aria-pressed surfacing as a boolean under a name we never asked for.
+    let needle = argv[1]
+    let idx = argv.count > 2 ? (Int(argv[2]) ?? 0) : 0
+    let hits = search(needle)
+    guard idx < hits.count else { print("no match[\(idx)] for \(needle) (\(hits.count) hits)"); exit(1) }
+    let el = hits[idx].el
+    print("// element: \(hits[idx].role) \(hits[idx].label.debugDescription)")
+    var names: CFArray?
+    if AXUIElementCopyAttributeNames(el, &names) == .success, let list = names as? [String] {
+        print("// \(list.count) attributes")
+        for name in list.sorted() {
+            var v: CFTypeRef?
+            let err = AXUIElementCopyAttributeValue(el, name as CFString, &v)
+            var settable: DarwinBoolean = false
+            AXUIElementIsAttributeSettable(el, name as CFString, &settable)
+            let shown: String
+            if err != .success { shown = "<err \(err.rawValue)>" }
+            else if let v { shown = String(describing: v).prefix(120).description }
+            else { shown = "nil" }
+            print("  \(name.padding(toLength: max(34, name.count), withPad: " ", startingAt: 0)) = \(shown)\(settable.boolValue ? "   [settable]" : "")")
+        }
+    } else {
+        print("// could not enumerate attributes")
+    }
+    var pnames: CFArray?
+    if AXUIElementCopyParameterizedAttributeNames(el, &pnames) == .success,
+       let plist = pnames as? [String], !plist.isEmpty {
+        print("// parameterized: \(plist.joined(separator: ", "))")
+    }
+
 case "press":
     let needle = argv[1]
     let idx = argv.count > 2 ? (Int(argv[2]) ?? 0) : 0

@@ -120,7 +120,9 @@ is in [FINDINGS.md](FINDINGS.md). The probe tools used to establish it are in
 
 - **State reading depends on Teams' English labels.** The DOM ids are
   locale-independent, but the label verbs are not. On a non-English Teams the
-  buttons still work; the indicator shows "unknown".
+  buttons still work; the indicator shows "unknown". This is not an oversight:
+  the in-meeting controls expose no boolean state attribute at all — the label
+  is the only signal Teams provides. See FINDINGS.md.
 - **The DOM ids are Microsoft's to rename.** If a Teams update changes them,
   CoughButton reports that it can't find the controls rather than failing
   silently.

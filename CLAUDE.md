@@ -67,6 +67,17 @@ Established by measurement, not documentation — see FINDINGS.md and `probe/`.
   "in a meeting" signal.
 - Cached-reference read ≈ **0.017 ms**; full tree walk 70–200 ms. Hence:
   discover once, cache, poll at 10 Hz.
+- **There is no boolean state attribute — settled, don't re-investigate.** All 45
+  attributes of the in-meeting `microphone-button` were enumerated live
+  (`axctl attrs`). `AXValue` is empty, `AXSubrole` unsupported, `AXSelected`
+  stays `0` across a toggle. **`AXDescription` is the only attribute that
+  changes.** Teams uses real toggle semantics elsewhere (app-bar tabs, and the
+  *pre-join* mic is an `AXSwitch` with a value) — but not in-meeting, so the
+  pre-join screen is not a valid stand-in. Locale independence has to come from
+  outside the tree: calibrate the labels against a CoreAudio mic-in-use signal.
+- `AXKeyShortcutsValue` exposes each control's current Teams shortcut
+  (`⇧ ⌘ M`), language-independently and reflecting user remapping — a useful
+  fallback for identifying controls if the DOM ids change.
 
 ### Three gotchas that will bite you
 
