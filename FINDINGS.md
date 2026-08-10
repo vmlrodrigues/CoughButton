@@ -174,6 +174,37 @@ nothing about the in-meeting button; they are different implementations.
    the wrong direction. Also check that the window you discovered against is
    still in the app's live window list (one AX call, not a walk).
 
+### Window transitions, not window modes, are what break actuation
+
+Measured deliberately, driving a live meeting through each state:
+
+| State | Controls reachable? | Presses that took effect |
+|---|---|---|
+| Full meeting window (`AXStandardWindow`) | yes | 6/6 |
+| Compact view (`AXSystemDialog`) | yes | 6/6 |
+| Compact view **minimised** | yes — still readable and pressable | 6/6 |
+| **During** a fullscreen transition | **no — absent from every window for seconds** | n/a |
+| Immediately after a minimise/restore | intermittently swallowed | — |
+
+So a *steady* state is fine in every window mode, minimised included. It is the
+**transition** that breaks things, in two distinct ways:
+
+1. **The controls leave the tree entirely.** Taking the meeting fullscreen moves
+   it to its own Space; for several seconds `microphone-button` and
+   `hangup-button` are absent from *every* window. An actuator that gives up in
+   a few hundred milliseconds simply fails.
+2. **A press is accepted but swallowed.** Immediately after a transition,
+   `AXPress` returns `0` and nothing happens.
+
+Both read to the user as "the hotkey sometimes doesn't register". The fix is
+patience with a press budget: keep re-discovering for ~0.5 s to *deliver*, then
+watch for ~0.5 s for it to *land*, and cap the number of presses at two — a
+press Teams applies late must never be pressed again, or the pair cancel out.
+
+Also note: leaving a meeting does not remove the window. It persists showing a
+call-quality survey (`cqf-dismiss-button`), with no meeting controls in it —
+another legitimate "window present, controls absent" state.
+
 ## 5. Resulting architecture
 
 Pure Accessibility. No synthesised keystrokes, no focus stealing, no CoreAudio in

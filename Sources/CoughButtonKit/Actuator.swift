@@ -26,12 +26,24 @@ public struct ActuationResult: Equatable, Sendable {
 
 public enum Actuator {
 
-    /// Time between re-reads while waiting for a press to register. Teams'
-    /// tree updates well inside this; a cached-reference read costs ~0.017 ms,
-    /// so polling this hard is free.
+    /// Time between re-reads while waiting for a press to register. A
+    /// cached-reference read costs ~0.017 ms, so polling this hard is free.
     public static let pollInterval: TimeInterval = 0.025
-    public static let pollsPerAttempt = 8      // ≈200 ms per attempt
-    public static let maxAttempts = 2
+
+    /// How long to keep trying to *deliver* a press when the control isn't
+    /// there. Measured against Teams: taking the meeting fullscreen moves it to
+    /// its own Space and the meeting controls disappear from every window in
+    /// the tree for **several seconds**. Failing instantly during that window
+    /// is what made the hotkey look like it "didn't register".
+    public static let deliveryWindow: TimeInterval = 0.5
+
+    /// How long to watch for a delivered press to actually take effect.
+    public static let watchWindow: TimeInterval = 0.5
+
+    /// Deliberately small. A press that Teams applies late must not be pressed
+    /// a second time, or the two cancel out and the mic ends up back where it
+    /// started — so patience is spent on *watching*, not on extra presses.
+    public static let maxPresses = 2
 
     /// Drive `control` to `desired`, verifying the change.
     ///
@@ -42,8 +54,9 @@ public enum Actuator {
         _ control: MeetingControl,
         is desired: ToggleState,
         on client: MeetingClient,
-        maxAttempts: Int = Actuator.maxAttempts,
-        pollsPerAttempt: Int = Actuator.pollsPerAttempt,
+        maxPresses: Int = Actuator.maxPresses,
+        deliveryWindow: TimeInterval = Actuator.deliveryWindow,
+        watchWindow: TimeInterval = Actuator.watchWindow,
         wait: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) }
     ) -> ActuationResult {
         var presses = 0
@@ -52,21 +65,35 @@ public enum Actuator {
             return ActuationResult(succeeded: true, finalState: desired, presses: 0)
         }
 
-        for attempt in 1...max(1, maxAttempts) {
-            if client.press(control) {
-                presses += 1
-                for _ in 0..<max(1, pollsPerAttempt) {
-                    wait(pollInterval)
-                    let observed = client.state(of: control)
-                    if observed == desired {
-                        return ActuationResult(succeeded: true, finalState: desired, presses: presses)
-                    }
+        for _ in 0..<max(1, maxPresses) {
+            // 1. Deliver. If the control isn't in the tree we keep
+            //    re-discovering for a while rather than giving up — a window
+            //    transition removes it entirely for seconds at a time.
+            var delivered = false
+            var spent: TimeInterval = 0
+            while spent < deliveryWindow {
+                if client.press(control) { delivered = true; break }
+                client.refresh()
+                wait(pollInterval)
+                spent += pollInterval
+            }
+            guard delivered else { continue }
+            presses += 1
+
+            // 2. Watch for it to take.
+            var watched: TimeInterval = 0
+            while watched < watchWindow {
+                wait(pollInterval)
+                watched += pollInterval
+                if client.state(of: control) == desired {
+                    return ActuationResult(succeeded: true, finalState: desired, presses: presses)
                 }
             }
-            // Either the press could not be delivered, or it did not take.
-            // A stale reference is much the likelier cause, so re-discover
-            // before the last attempt rather than hammering a dead element.
-            if attempt < maxAttempts { client.refresh() }
+
+            // Delivered but didn't land — the likeliest cause is a reference
+            // from a window Teams has since replaced, so re-discover before
+            // spending the next press.
+            client.refresh()
         }
 
         return ActuationResult(succeeded: false, finalState: client.state(of: control), presses: presses)

@@ -52,6 +52,41 @@ final class ActuatorTests: XCTestCase {
         XCTAssertEqual(result.presses, 0)
     }
 
+    /// The transition case, measured against Teams: taking a meeting fullscreen
+    /// moves it to its own Space and the controls vanish from every window for
+    /// seconds. Failing instantly is what made the hotkey look like it "didn't
+    /// register" — the actuator must keep re-discovering until they return.
+    func testEnsureWaitsOutAControlThatIsTemporarilyMissing() {
+        let client = FakeMeetingClient()
+        client.states[.mic] = .off
+        client.pressUndeliverable = true
+        var refreshes = 0
+        client.onRefresh = { c in
+            refreshes += 1
+            if refreshes >= 3 { c.pressUndeliverable = false }
+        }
+
+        let result = Actuator.ensure(.mic, is: .on, on: client, wait: instantly)
+
+        XCTAssertTrue(result.succeeded, "a control that comes back mid-transition must still be actuated")
+        XCTAssertEqual(result.finalState, .on)
+        XCTAssertEqual(result.presses, 1)
+    }
+
+    /// Patience is spent on *watching*, never on extra presses: a press Teams
+    /// applies late must not be pressed again, or the two cancel out and the
+    /// mic ends up back where it started.
+    func testEnsureNeverExceedsThePressBudget() {
+        let client = FakeMeetingClient()
+        client.states[.mic] = .off
+        client.pressesToSwallow = 99
+
+        let result = Actuator.ensure(.mic, is: .on, on: client, wait: instantly)
+
+        XCTAssertLessThanOrEqual(client.pressCount, Actuator.maxPresses)
+        XCTAssertFalse(result.succeeded)
+    }
+
     func testEnsureGivesUpAfterMaxAttempts() {
         let client = FakeMeetingClient()
         client.states[.mic] = .off
@@ -60,7 +95,7 @@ final class ActuatorTests: XCTestCase {
         let result = Actuator.ensure(.mic, is: .on, on: client, wait: instantly)
 
         XCTAssertFalse(result.succeeded)
-        XCTAssertEqual(result.presses, Actuator.maxAttempts)
+        XCTAssertEqual(result.presses, Actuator.maxPresses)
     }
 
     // MARK: Toggle
