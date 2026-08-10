@@ -87,7 +87,16 @@ Established by measurement, not documentation — see FINDINGS.md and `probe/`.
 2. **`microphone-button` is not unique** — the main window has one too, and
    mid-toggle the two disagree. Always scope lookups to the meeting window.
 3. **References go stale on re-render.** Detect `kAXErrorInvalidUIElement` and
-   re-find.
+   re-find — but that alone is NOT enough (see 4).
+4. **The meeting window's subrole varies, and swaps detach elements silently.**
+   Full meeting window is `AXStandardWindow`; the **compact view** is an
+   `AXSystemDialog`. Teams swaps between them as you navigate, and orphaned
+   elements keep answering reads with their *last-known* label rather than
+   returning `kAXErrorInvalidUIElement`. A stale label is worse than a dead
+   reference: `Actuator.toggle` reads state to pick a direction, so it presses
+   the wrong way and can leave you live when you asked to be muted. Hence
+   `cachedWindowIsCurrent()` — verify the window is still in Teams' live window
+   list, not just that the element hasn't been invalidated.
 
 ## Architecture
 

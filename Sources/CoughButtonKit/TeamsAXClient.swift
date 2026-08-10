@@ -81,10 +81,34 @@ public final class TeamsAXClient: MeetingClient, @unchecked Sendable {
         }
     }
 
-    /// Returns a live element for `control`, re-discovering once if the cached
-    /// reference has gone stale.
+    /// Is the window we discovered against still one of Teams' current windows?
+    ///
+    /// This is the check that `AX.isStale` cannot do. Teams swaps between the
+    /// full meeting window and a **compact-view `AXSystemDialog`** as you move
+    /// around, and each swap rebuilds the toolbar. Elements from the replaced
+    /// window are frequently *detached rather than invalidated*: they keep
+    /// answering reads with their last-known label instead of returning
+    /// `kAXErrorInvalidUIElement`.
+    ///
+    /// That is worse than a dead reference. `Actuator.toggle` reads the current
+    /// state to decide which way to go, so a stale label makes it choose the
+    /// wrong direction and press the mic the opposite way — which shows up as
+    /// "the hotkey sometimes doesn't register", and can leave you live when you
+    /// asked to be muted.
+    ///
+    /// Comparing against the live window list costs one AX call, not a tree
+    /// walk, so it is affordable on the 10 Hz poll.
+    private func cachedWindowIsCurrent() -> Bool {
+        guard let window = meetingWindow, let pid = teamsPID() else { return false }
+        return AX.windows(ofPID: pid).contains { CFEqual($0, window) }
+    }
+
+    /// Returns a live element for `control`, re-discovering when the cached
+    /// reference is stale *or* its window has been replaced.
     private func element(for control: MeetingControl) -> AXUIElement? {
-        if let cached = buttons[control], !AX.isStale(cached) { return cached }
+        if let cached = buttons[control], cachedWindowIsCurrent(), !AX.isStale(cached) {
+            return cached
+        }
         refresh()
         return buttons[control]
     }
@@ -95,7 +119,7 @@ public final class TeamsAXClient: MeetingClient, @unchecked Sendable {
     /// `false` here means "re-discover soon", not "the meeting has ended" —
     /// the controller decides that after several consecutive misses.
     public var isInMeeting: Bool {
-        guard let cached = buttons[.mic] else { return false }
+        guard let cached = buttons[.mic], cachedWindowIsCurrent() else { return false }
         return !AX.isStale(cached)
     }
 

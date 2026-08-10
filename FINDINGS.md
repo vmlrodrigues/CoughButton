@@ -102,7 +102,10 @@ poll them at 10–20 Hz for essentially nothing.
 ### Other mechanics
 
 - A meeting is a **separate `AXWindow` on the same pid**. Its existence is a
-  clean "in a meeting" signal — no heuristics needed.
+  clean "in a meeting" signal — no heuristics needed. But **the subrole varies**:
+  the full meeting window is `AXStandardWindow`, while Teams' *compact view* is
+  an `AXSystemDialog`. Never filter on subrole; locate the window by finding
+  `hangup-button` inside it.
 - The **pre-join screen** uses a different shape: `AXCheckBox[AXSwitch]` with a
   real `value=0/1` *and* the shortcut in the label (`"Unmute mic (⇧⌘M)"`).
 - **AX notifications do fire.** Observer registration succeeds for
@@ -151,7 +154,7 @@ nothing about the in-meeting button; they are different implementations.
   language, automatically, without shipping a locale table. That is the real
   follow-up.
 
-### Three gotchas
+### Four gotchas
 
 1. **Modal dialogs blank the tree.** Teams' "Invite people to join you" popup is
    `aria-modal`, so while it is open the entire rest of the meeting UI is absent
@@ -163,6 +166,13 @@ nothing about the in-meeting button; they are different implementations.
    first match.
 3. **References go stale on re-render.** Cache them, but detect
    `kAXErrorInvalidUIElement` and re-find.
+4. **`kAXErrorInvalidUIElement` is not enough on its own.** Teams swaps between
+   the full meeting window and the compact-view dialog as you navigate, and
+   elements orphaned by that swap are often *detached rather than invalidated* —
+   they keep answering reads with their last-known label instead of erroring. A
+   stale label is worse than a dead reference, because it makes a toggle choose
+   the wrong direction. Also check that the window you discovered against is
+   still in the app's live window list (one AX call, not a walk).
 
 ## 5. Resulting architecture
 
