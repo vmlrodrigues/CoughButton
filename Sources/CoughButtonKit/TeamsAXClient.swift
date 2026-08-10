@@ -132,4 +132,27 @@ public final class TeamsAXClient: MeetingClient, @unchecked Sendable {
         guard let element = element(for: control) else { return false }
         return AX.press(element)
     }
+
+    /// Shape of the window situation, with no titles — see the protocol note.
+    /// This is the context that makes a failed action diagnosable: which window
+    /// modes were in play when the controls went missing.
+    public var diagnostics: String {
+        guard let pid = teamsPID() else { return "teams=absent" }
+        let windows = AX.windows(ofPID: pid)
+        let shapes = windows.map { window -> String in
+            var parts = [AX.string(window, kAXSubroleAttribute) ?? "?"]
+            if (AX.attribute(window, kAXMinimizedAttribute) as? NSNumber)?.boolValue == true {
+                parts.append("min")
+            }
+            if (AX.attribute(window, "AXFullScreen") as? NSNumber)?.boolValue == true {
+                parts.append("full")
+            }
+            let hasControls = AX.firstDescendant(of: window, maxDepth: 45) {
+                Self.domID($0) == DOM.hangup
+            } != nil
+            parts.append(hasControls ? "controls" : "no-controls")
+            return parts.joined(separator: "/")
+        }
+        return "windows=[\(shapes.joined(separator: ", "))] cached=\(buttons.count)"
+    }
 }

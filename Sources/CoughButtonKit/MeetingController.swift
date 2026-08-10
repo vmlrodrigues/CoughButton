@@ -105,6 +105,19 @@ final class MeetingWorker: @unchecked Sendable {
 
     /// Returns nil when the phase carries no action (key-up on a toggle).
     func apply(_ action: HotkeyAction, phase: HotkeyPhase) -> ActuationResult? {
+        let result = perform(action, phase: phase)
+        // Only failures are recorded. A quiet log means a quiet app; anything in
+        // it is a real "the hotkey didn't register" event with the window
+        // context attached, which beats trying to recall it days later.
+        if let result, !result.succeeded {
+            DiagLog.write("UNVERIFIED \(action.rawValue)/\(phase == .began ? "down" : "up") "
+                + "presses=\(result.presses) observed=\(result.finalState.rawValue) "
+                + client.diagnostics)
+        }
+        return result
+    }
+
+    private func perform(_ action: HotkeyAction, phase: HotkeyPhase) -> ActuationResult? {
         switch action {
         case .toggleMic:
             guard phase == .began else { return nil }

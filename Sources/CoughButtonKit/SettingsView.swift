@@ -140,9 +140,14 @@ public struct SettingsView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("CoughButton")
                     .font(.title3.weight(.semibold))
-                Text("Version \(Updater.currentVersion())")
+                // A local build and a release both report the same version
+                // number, so without this you cannot tell which one is running
+                // — which matters when you're deliberately testing a fix.
+                Text(Updater.isDevBuild
+                     ? "Version \(Updater.currentVersion()) — test build"
+                     : "Version \(Updater.currentVersion())")
                     .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Updater.isDevBuild ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
                     .textSelection(.enabled)
             }
             Spacer()

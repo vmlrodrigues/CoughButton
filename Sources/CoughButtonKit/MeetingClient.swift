@@ -37,6 +37,18 @@ public protocol MeetingClient: AnyObject {
     func press(_ control: MeetingControl) -> Bool
     /// Re-discover the meeting window and re-cache element references.
     func refresh()
+
+    /// A short, non-identifying description of the current window situation,
+    /// used only when logging an action that could not be verified.
+    ///
+    /// Must never include window titles — Teams puts the meeting name, the
+    /// organisation and the signed-in address in them, and this string is meant
+    /// to be safe to paste into a public issue.
+    var diagnostics: String { get }
+}
+
+public extension MeetingClient {
+    var diagnostics: String { "" }
 }
 
 // ---------------------------------------------------------------------------
