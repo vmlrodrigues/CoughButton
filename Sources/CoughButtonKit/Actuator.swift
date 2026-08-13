@@ -57,32 +57,55 @@ public enum Actuator {
         maxPresses: Int = Actuator.maxPresses,
         deliveryWindow: TimeInterval = Actuator.deliveryWindow,
         watchWindow: TimeInterval = Actuator.watchWindow,
-        wait: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) }
+        wait: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) },
+        now: () -> Date = Date.init,
+        deadline: Date? = nil,
+        shouldCancel: () -> Bool = { false }
     ) -> ActuationResult {
         var presses = 0
+        let budgetDeadline = now().addingTimeInterval(deliveryWindow + watchWindow)
+        let actionDeadline = deadline.map { min($0, budgetDeadline) } ?? budgetDeadline
 
         if client.state(of: control) == desired {
             return ActuationResult(succeeded: true, finalState: desired, presses: 0)
         }
 
-        for _ in 0..<max(1, maxPresses) {
+        attempts: for _ in 0..<max(1, maxPresses)
+            where now() < actionDeadline && !shouldCancel() {
             // 1. Deliver. If the control isn't in the tree we keep
             //    re-discovering for a while rather than giving up — a window
             //    transition removes it entirely for seconds at a time.
             var delivered = false
             var spent: TimeInterval = 0
-            while spent < deliveryWindow {
+            let deliveryDeadline = min(
+                now().addingTimeInterval(deliveryWindow),
+                actionDeadline
+            )
+            while spent < deliveryWindow,
+                  now() < deliveryDeadline,
+                  !shouldCancel() {
                 if client.press(control) { delivered = true; break }
                 client.refresh()
+                if now() >= deliveryDeadline || shouldCancel() { break }
                 wait(pollInterval)
                 spent += pollInterval
             }
-            guard delivered else { continue }
+            guard delivered else {
+                if shouldCancel() { break attempts }
+                continue
+            }
             presses += 1
+            if shouldCancel() { break attempts }
 
             // 2. Watch for it to take.
             var watched: TimeInterval = 0
-            while watched < watchWindow {
+            let watchDeadline = min(
+                now().addingTimeInterval(watchWindow),
+                actionDeadline
+            )
+            while watched < watchWindow,
+                  now() < watchDeadline,
+                  !shouldCancel() {
                 wait(pollInterval)
                 watched += pollInterval
                 if client.state(of: control) == desired {
@@ -93,10 +116,58 @@ public enum Actuator {
             // Delivered but didn't land — the likeliest cause is a reference
             // from a window Teams has since replaced, so re-discover before
             // spending the next press.
-            client.refresh()
+            if shouldCancel() { break attempts }
+            if now() < actionDeadline { client.refresh() }
         }
 
         return ActuationResult(succeeded: false, finalState: client.state(of: control), presses: presses)
+    }
+
+    /// Keeps observing after an earlier opposite-direction press may still land.
+    ///
+    /// Push-to-talk key-up uses this after an unmute was delivered. A delayed
+    /// unmute can otherwise arrive after an initial "already muted" read and
+    /// leave the microphone live after the user has released the key.
+    @discardableResult
+    public static func ensureSettled(
+        _ control: MeetingControl,
+        is desired: ToggleState,
+        on client: MeetingClient,
+        until deadline: Date,
+        settleWindow: TimeInterval = Actuator.watchWindow,
+        wait: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) },
+        now: () -> Date = Date.init
+    ) -> ActuationResult {
+        let settleDeadline = min(now().addingTimeInterval(settleWindow), deadline)
+        var presses = 0
+        var observed = client.state(of: control)
+
+        while now() < settleDeadline {
+            if observed != desired {
+                let result = ensure(
+                    control,
+                    is: desired,
+                    on: client,
+                    maxPresses: max(1, maxPresses - presses),
+                    wait: wait,
+                    now: now,
+                    deadline: deadline
+                )
+                presses += result.presses
+                observed = result.finalState
+                if observed != desired && presses >= maxPresses { break }
+            }
+
+            if now() >= settleDeadline { break }
+            wait(pollInterval)
+            observed = client.state(of: control)
+        }
+
+        return ActuationResult(
+            succeeded: observed == desired,
+            finalState: observed,
+            presses: presses
+        )
     }
 
     /// Flip `control` to the other state.

@@ -154,19 +154,39 @@ nothing about the in-meeting button; they are different implementations.
   language, automatically, without shipping a locale table. That is the real
   follow-up.
 
-### Four gotchas
+### Six gotchas
 
-1. **Modal dialogs blank the tree.** Teams' "Invite people to join you" popup is
+1. **WebView2 can expose only an empty native shell until explicitly awakened.**
+   Observed live on 12 August 2026: Teams exposed both the compact meeting window
+   and main window, but their web content consisted only of nested empty
+   `AXGroup`s. Every hotkey reached CoughButton, yet discovery found no controls
+   and correctly logged `presses=0 observed=unknown`. Sending Chromium's
+   `AXManualAccessibility` and `AXEnhancedUserInterface` activation hints caused
+   the full tree and its existing DOM ids to materialise without moving focus or
+   changing meeting state. The setters returned `attributeUnsupported` and
+   `notImplemented` on this build despite producing the required side effect.
+   Activation is asynchronous, so production discovery retries across a bounded
+   burst of non-blocking poll ticks rather than walking once or blocking the
+   action queue after setting the hints.
+2. **Full-screen sharing replaces the normal meeting signature.** Observed live
+   on 13 August 2026: while presenting an entire screen, Teams exposed an
+   `AXSystemDialog` containing `microphone-button`, `video-button`, and
+   `share-button`, but no `hangup-button`. All three buttons were enabled and
+   advertised `AXPress`. A second share toolbar contained only `share-button`.
+   Meeting discovery must accept the three-control presenter signature while
+   rejecting partial combinations, especially the duplicate mic in Teams' main
+   window.
+3. **Modal dialogs blank the tree.** Teams' "Invite people to join you" popup is
    `aria-modal`, so while it is open the entire rest of the meeting UI is absent
    from the AX tree. A lookup must tolerate this and retry rather than
    concluding the meeting ended.
-2. **`microphone-button` is not unique.** The main window carries one as well as
+4. **`microphone-button` is not unique.** The main window carries one as well as
    the meeting window, and mid-toggle the two briefly disagree (`"Mute mic"` vs
    `"Unmute mic"`). Scope every lookup to the meeting window; never take the
    first match.
-3. **References go stale on re-render.** Cache them, but detect
+5. **References go stale on re-render.** Cache them, but detect
    `kAXErrorInvalidUIElement` and re-find.
-4. **`kAXErrorInvalidUIElement` is not enough on its own.** Teams swaps between
+6. **`kAXErrorInvalidUIElement` is not enough on its own.** Teams swaps between
    the full meeting window and the compact-view dialog as you navigate, and
    elements orphaned by that swap are often *detached rather than invalidated* —
    they keep answering reads with their last-known label instead of erroring. A

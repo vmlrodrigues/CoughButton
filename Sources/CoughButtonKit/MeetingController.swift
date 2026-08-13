@@ -46,9 +46,13 @@ public enum HotkeyPhase: Sendable { case began, ended }
 enum Tuning {
     static let tickInterval: TimeInterval = 0.1
     /// Consecutive misses tolerated before declaring the meeting over. Absorbs
-    /// the brief reference invalidation a Teams re-render causes, so the menu
-    /// bar doesn't flap.
-    static let missesBeforeIdle = 3
+    /// the brief reference invalidation and asynchronous WebView wake-up Teams
+    /// causes, so the menu bar doesn't flap or report idle prematurely.
+    static let missesBeforeIdle = 6
+    /// Discovery is retried on consecutive ticks during this short wake-up
+    /// window. Each refresh remains non-blocking so actions cannot queue behind
+    /// repeated half-second waits.
+    static let rediscoveryBurst = 6
     /// Re-discovery cadence while not in a meeting: 20 × 0.1 s = 2 s.
     static let rediscoverEvery = 20
 }
@@ -64,6 +68,9 @@ final class MeetingWorker: @unchecked Sendable {
     /// Mic state captured when push-to-talk began, so release restores what was
     /// there rather than blindly muting.
     private var pushToTalkRestore: ToggleState?
+    /// True once key-down delivered an unmute that could still land after the
+    /// physical key has been released.
+    private var pushToTalkUnmuteDelivered = false
 
     init(client: MeetingClient) {
         self.client = client
@@ -78,9 +85,9 @@ final class MeetingWorker: @unchecked Sendable {
         }
 
         misses += 1
-        // The first miss is usually a stale reference from a re-render, so
-        // retry at once; after that fall back to the slow re-discovery cadence.
-        if misses == 1 || misses % Tuning.rediscoverEvery == 0 {
+        // A stale reference or dormant WebView needs a short burst of retries;
+        // after that fall back to the slow idle cadence.
+        if misses <= Tuning.rediscoveryBurst || misses % Tuning.rediscoverEvery == 0 {
             client.refresh()
             if client.isInMeeting {
                 misses = 0
@@ -104,12 +111,22 @@ final class MeetingWorker: @unchecked Sendable {
     }
 
     /// Returns nil when the phase carries no action (key-up on a toggle).
-    func apply(_ action: HotkeyAction, phase: HotkeyPhase) -> ActuationResult? {
-        let result = perform(action, phase: phase)
+    func apply(
+        _ action: HotkeyAction,
+        phase: HotkeyPhase,
+        deadline: Date? = nil,
+        shouldCancel: @escaping () -> Bool = { false }
+    ) -> ActuationResult? {
+        let result = perform(
+            action,
+            phase: phase,
+            deadline: deadline,
+            shouldCancel: shouldCancel
+        )
         // Only failures are recorded. A quiet log means a quiet app; anything in
         // it is a real "the hotkey didn't register" event with the window
         // context attached, which beats trying to recall it days later.
-        if let result, !result.succeeded {
+        if let result, !result.succeeded, !shouldCancel() {
             DiagLog.write("UNVERIFIED \(action.rawValue)/\(phase == .began ? "down" : "up") "
                 + "presses=\(result.presses) observed=\(result.finalState.rawValue) "
                 + client.diagnostics)
@@ -117,7 +134,12 @@ final class MeetingWorker: @unchecked Sendable {
         return result
     }
 
-    private func perform(_ action: HotkeyAction, phase: HotkeyPhase) -> ActuationResult? {
+    private func perform(
+        _ action: HotkeyAction,
+        phase: HotkeyPhase,
+        deadline: Date?,
+        shouldCancel: @escaping () -> Bool
+    ) -> ActuationResult? {
         switch action {
         case .toggleMic:
             guard phase == .began else { return nil }
@@ -132,13 +154,55 @@ final class MeetingWorker: @unchecked Sendable {
             switch phase {
             case .began:
                 pushToTalkRestore = client.state(of: .mic)
-                return Actuator.ensure(.mic, is: .on, on: client)
+                pushToTalkUnmuteDelivered = false
+                let result = Actuator.ensure(
+                    .mic,
+                    is: .on,
+                    on: client,
+                    shouldCancel: shouldCancel
+                )
+                pushToTalkUnmuteDelivered = result.presses > 0
+                return result
             case .ended:
                 let target = MeetingController.pushToTalkRestoreTarget(priorState: pushToTalkRestore ?? .unknown)
                 pushToTalkRestore = nil
-                return Actuator.ensure(.mic, is: target, on: client)
+                let unmuteMayStillLand = pushToTalkUnmuteDelivered
+                pushToTalkUnmuteDelivered = false
+                if target == .off && unmuteMayStillLand {
+                    let releaseDeadline = deadline
+                        ?? Date().addingTimeInterval(Actuator.deliveryWindow + Actuator.watchWindow)
+                    return Actuator.ensureSettled(
+                        .mic,
+                        is: .off,
+                        on: client,
+                        until: releaseDeadline
+                    )
+                }
+                return Actuator.ensure(
+                    .mic,
+                    is: target,
+                    on: client,
+                    deadline: deadline
+                )
             }
         }
+    }
+}
+
+private final class ActionCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        lock.unlock()
+    }
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
     }
 }
 
@@ -155,6 +219,7 @@ public final class MeetingController: ObservableObject {
     private let worker: MeetingWorker
     private let queue = DispatchQueue(label: "com.victorrodrigues.coughbutton.ax", qos: .userInitiated)
     private var timer: DispatchSourceTimer?
+    private var pushToTalkCancellation: ActionCancellation?
 
     public init(client: MeetingClient = TeamsAXClient()) {
         self.worker = MeetingWorker(client: client)
@@ -188,8 +253,37 @@ public final class MeetingController: ObservableObject {
 
     public func perform(_ action: HotkeyAction, phase: HotkeyPhase = .began) {
         let worker = self.worker
+        let cancellation: ActionCancellation?
+        let deadline: Date?
+
+        if action == .pushToTalk {
+            switch phase {
+            case .began:
+                pushToTalkCancellation?.cancel()
+                let token = ActionCancellation()
+                pushToTalkCancellation = token
+                cancellation = token
+                deadline = nil
+            case .ended:
+                cancellation = pushToTalkCancellation
+                cancellation?.cancel()
+                pushToTalkCancellation = nil
+                deadline = Date().addingTimeInterval(
+                    Actuator.deliveryWindow + Actuator.watchWindow
+                )
+            }
+        } else {
+            cancellation = nil
+            deadline = nil
+        }
+
         queue.async { [weak self] in
-            let result = worker.apply(action, phase: phase)
+            let result = worker.apply(
+                action,
+                phase: phase,
+                deadline: deadline,
+                shouldCancel: { cancellation?.isCancelled ?? false }
+            )
             let latest = worker.readSnapshot()
             Task { @MainActor in
                 guard let self else { return }

@@ -9,14 +9,18 @@ import AppKit
 // tree. The meeting controls carry stable DOM ids, so we address them by id
 // rather than by their English labels, and read state from the label only.
 //
-// Three behaviours here are the result of measured findings, not guesses:
+// Five behaviours here are the result of measured findings, not guesses:
 //
-//  1. A meeting is a *separate window* of the same process. Its presence is the
+//  1. WebView2 sometimes needs an Accessibility activation hint before it
+//     materialises its web tree.
+//  2. A meeting is a *separate window* of the same process. Its presence is the
 //     "in a meeting" signal — no heuristics required.
-//  2. `microphone-button` is NOT unique: the main window carries one too, and
+//  3. While sharing full-screen, the presenter window omits `hangup-button` but
+//     keeps the mic, camera, and share controls.
+//  4. `microphone-button` is NOT unique: the main window carries one too, and
 //     mid-toggle the two briefly disagree. Every lookup is therefore scoped to
 //     the meeting window.
-//  3. References go stale on re-render, and modal dialogs (Teams' "Invite
+//  5. References go stale on re-render, and modal dialogs (Teams' "Invite
 //     people" popup is aria-modal) blank the rest of the tree entirely. Both
 //     are transient, so discovery failure is never treated as "meeting ended"
 //     without a retry.
@@ -35,8 +39,12 @@ public final class TeamsAXClient: MeetingClient, @unchecked Sendable {
         static let mic = "microphone-button"
         static let camera = "video-button"
         static let hand = "raisehands-button"
+        static let share = "share-button"
     }
 
+    private static let knownDOMIdentifiers: Set<String> = [
+        DOM.hangup, DOM.mic, DOM.camera, DOM.hand, DOM.share
+    ]
     private var meetingWindow: AXUIElement?
     private var buttons: [MeetingControl: AXUIElement] = [:]
 
@@ -55,11 +63,46 @@ public final class TeamsAXClient: MeetingClient, @unchecked Sendable {
 
     private static func domID(_ element: AXUIElement) -> String? { AX.domIdentifier(element) }
 
-    /// A meeting window is the one whose subtree contains the hang-up button.
-    private func locateMeetingWindow(pid: pid_t) -> AXUIElement? {
+    /// Finds the known controls in one bounded walk, avoiding a separate full
+    /// traversal for every button.
+    private static func knownElements(in window: AXUIElement) -> [String: AXUIElement] {
+        var found: [String: AXUIElement] = [:]
+        var remaining = 20_000
+
+        func walk(_ element: AXUIElement, depth: Int) {
+            guard remaining > 0, depth <= 45 else { return }
+            remaining -= 1
+            if let id = domID(element), knownDOMIdentifiers.contains(id) {
+                found[id] = element
+            }
+            for child in AX.children(element) {
+                walk(child, depth: depth + 1)
+            }
+        }
+
+        walk(window, depth: 0)
+        return found
+    }
+
+    /// Normal meeting windows contain hang-up. Teams' full-screen presenter
+    /// window does not, so its locale-independent signature is the combination
+    /// of mic + camera + share. Requiring all three avoids the duplicate mic
+    /// button exposed by the main Teams window.
+    static func isMeetingWindow(domIdentifiers: Set<String>) -> Bool {
+        if domIdentifiers.contains(DOM.hangup) { return true }
+        return domIdentifiers.contains(DOM.mic)
+            && domIdentifiers.contains(DOM.camera)
+            && domIdentifiers.contains(DOM.share)
+    }
+
+    private func locateMeetingWindow(
+        pid: pid_t
+    ) -> (window: AXUIElement, elements: [String: AXUIElement])? {
         for window in AX.windows(ofPID: pid) {
-            let hit = AX.firstDescendant(of: window, maxDepth: 45) { Self.domID($0) == DOM.hangup }
-            if hit != nil { return window }
+            let elements = Self.knownElements(in: window)
+            if Self.isMeetingWindow(domIdentifiers: Set(elements.keys)) {
+                return (window, elements)
+            }
         }
         return nil
     }
@@ -68,14 +111,26 @@ public final class TeamsAXClient: MeetingClient, @unchecked Sendable {
         meetingWindow = nil
         buttons.removeAll()
 
-        guard AX.isTrusted, let pid = teamsPID(), let window = locateMeetingWindow(pid: pid) else { return }
-        meetingWindow = window
+        guard AX.isTrusted, let pid = teamsPID() else { return }
+
+        // WebView2 can leave the native Teams windows visible while their web
+        // accessibility children are only empty groups. Without this activation
+        // hint, discovery can miss every control indefinitely even though a
+        // meeting is in progress.
+        AX.prepareWebAccessibility(ofPID: pid)
+
+        // Activation is asynchronous. MeetingWorker performs a bounded burst of
+        // refreshes on consecutive poll ticks, and Actuator does the same inside
+        // its wall-clock delivery budget. Do not block here: a blocking refresh
+        // can compound into a dangerously late push-to-talk release.
+        guard let located = locateMeetingWindow(pid: pid) else { return }
+        meetingWindow = located.window
 
         let wanted: [MeetingControl: String] = [
             .mic: DOM.mic, .camera: DOM.camera, .hand: DOM.hand
         ]
         for (control, id) in wanted {
-            if let element = AX.firstDescendant(of: window, maxDepth: 45, where: { Self.domID($0) == id }) {
+            if let element = located.elements[id] {
                 buttons[control] = element
             }
         }
@@ -103,16 +158,6 @@ public final class TeamsAXClient: MeetingClient, @unchecked Sendable {
         return AX.windows(ofPID: pid).contains { CFEqual($0, window) }
     }
 
-    /// Returns a live element for `control`, re-discovering when the cached
-    /// reference is stale *or* its window has been replaced.
-    private func element(for control: MeetingControl) -> AXUIElement? {
-        if let cached = buttons[control], cachedWindowIsCurrent(), !AX.isStale(cached) {
-            return cached
-        }
-        refresh()
-        return buttons[control]
-    }
-
     // MARK: MeetingClient
 
     /// Cheap by contract: one cached-reference read, no walking. Returning
@@ -124,13 +169,17 @@ public final class TeamsAXClient: MeetingClient, @unchecked Sendable {
     }
 
     public func state(of control: MeetingControl) -> ToggleState {
-        guard let element = element(for: control) else { return .unknown }
-        return ControlLabels.state(of: control, fromLabel: AX.label(element))
+        guard let cached = buttons[control],
+              cachedWindowIsCurrent(),
+              !AX.isStale(cached) else { return .unknown }
+        return ControlLabels.state(of: control, fromLabel: AX.label(cached))
     }
 
     public func press(_ control: MeetingControl) -> Bool {
-        guard let element = element(for: control) else { return false }
-        return AX.press(element)
+        guard let cached = buttons[control],
+              cachedWindowIsCurrent(),
+              !AX.isStale(cached) else { return false }
+        return AX.press(cached)
     }
 
     /// Shape of the window situation, with no titles — see the protocol note.
@@ -147,9 +196,8 @@ public final class TeamsAXClient: MeetingClient, @unchecked Sendable {
             if (AX.attribute(window, "AXFullScreen") as? NSNumber)?.boolValue == true {
                 parts.append("full")
             }
-            let hasControls = AX.firstDescendant(of: window, maxDepth: 45) {
-                Self.domID($0) == DOM.hangup
-            } != nil
+            let ids = Set(Self.knownElements(in: window).keys)
+            let hasControls = Self.isMeetingWindow(domIdentifiers: ids)
             parts.append(hasControls ? "controls" : "no-controls")
             return parts.joined(separator: "/")
         }

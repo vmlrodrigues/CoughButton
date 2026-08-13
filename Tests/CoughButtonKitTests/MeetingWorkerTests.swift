@@ -101,9 +101,9 @@ final class MeetingWorkerTests: XCTestCase {
         }
     }
 
-    /// Discovery is expensive (70–200 ms), so it must not run on every tick
-    /// while idle — only on the first miss and then on the slow cadence.
-    func testDoesNotRediscoverOnEveryTickWhileIdle() throws {
+    /// Discovery runs in a bounded burst while WebView wakes, then stops until
+    /// the slow idle cadence rather than walking continuously.
+    func testRediscoveryBurstIsBoundedWhileIdle() throws {
         try requireAccessibility()
         let client = FakeMeetingClient()
         client.inMeeting = false
@@ -111,7 +111,7 @@ final class MeetingWorkerTests: XCTestCase {
 
         for _ in 0..<(Tuning.rediscoverEvery - 1) { _ = worker.tick() }
 
-        XCTAssertEqual(client.refreshCount, 1, "only the first miss should have re-discovered")
+        XCTAssertEqual(client.refreshCount, Tuning.rediscoveryBurst)
     }
 
     func testRediscoversAgainOnTheSlowCadence() throws {
@@ -122,7 +122,27 @@ final class MeetingWorkerTests: XCTestCase {
 
         for _ in 0..<Tuning.rediscoverEvery { _ = worker.tick() }
 
-        XCTAssertEqual(client.refreshCount, 2)
+        XCTAssertEqual(client.refreshCount, Tuning.rediscoveryBurst + 1)
+    }
+
+    func testMeetingCanRecoverLateInWakeupBurst() throws {
+        try requireAccessibility()
+        let client = FakeMeetingClient()
+        client.inMeeting = false
+        client.onRefresh = { client in
+            if client.refreshCount == Tuning.rediscoveryBurst {
+                client.inMeeting = true
+            }
+        }
+        let worker = MeetingWorker(client: client)
+
+        var snapshot: MeetingSnapshot?
+        for _ in 0..<Tuning.rediscoveryBurst {
+            snapshot = worker.tick()
+        }
+
+        XCTAssertEqual(snapshot?.inMeeting, true)
+        XCTAssertEqual(client.refreshCount, Tuning.rediscoveryBurst)
     }
 
     // MARK: Actions

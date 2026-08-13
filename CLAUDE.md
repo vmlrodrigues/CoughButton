@@ -41,7 +41,8 @@ exists to prevent is believing you're muted while you're live. Concretely:
   assuming success.
 - `ToggleState.unknown` is a first-class value that reaches the UI as an orange
   glyph. Do not "helpfully" collapse it to `.off`.
-- Push-to-talk release resolves unknown → **muted** (`pushToTalkRestoreTarget`).
+- Push-to-talk release resolves unknown → **muted** (`pushToTalkRestoreTarget`),
+  cancels any in-flight key-down work, and watches for an unmute that lands late.
 
 ## The label inversion — read this before touching ControlLabels
 
@@ -63,8 +64,10 @@ Established by measurement, not documentation — see FINDINGS.md and `probe/`.
 - **`AXPress` works on a background window and does not steal focus** (0 ms).
   No synthesised keystrokes are needed — an early focus-steal was Teams' own
   *navigation* handler, not the press mechanism.
-- **A meeting is a separate `AXWindow` of the same pid.** That's the
-  "in a meeting" signal.
+- **A meeting is a separate `AXWindow` of the same pid.** Normally it is
+  identified by `hangup-button`; while sharing full-screen, Teams replaces it
+  with a presenter window identified by the combination of
+  `microphone-button` + `video-button` + `share-button`.
 - Cached-reference read ≈ **0.017 ms**; full tree walk 70–200 ms. Hence:
   discover once, cache, poll at 10 Hz.
 - **There is no boolean state attribute — settled, don't re-investigate.** All 45
@@ -79,16 +82,27 @@ Established by measurement, not documentation — see FINDINGS.md and `probe/`.
   (`⇧ ⌘ M`), language-independently and reflecting user remapping — a useful
   fallback for identifying controls if the DOM ids change.
 
-### Three gotchas that will bite you
+### Six gotchas that will bite you
 
-1. **Modal dialogs blank the tree.** Teams' "Invite people" popup is
+1. **WebView2 can expose only empty groups until explicitly awakened.** The
+   native meeting window remains present, but every control is absent and all
+   hotkeys fail honestly with `presses=0`. Call
+   `AX.prepareWebAccessibility(ofPID:)` before discovery; `MeetingWorker` retries
+   on consecutive non-blocking poll ticks while the tree materialises. The
+   WebView2 setters may return unsupported/not-implemented while still producing
+   the required side effect.
+2. **Full-screen sharing removes the hang-up control.** The presenter window
+   still exposes mic, camera, and share buttons, but no `hangup-button`. Treat
+   that three-control combination as a meeting window; requiring only mic would
+   match the duplicate in Teams' main window.
+3. **Modal dialogs blank the tree.** Teams' "Invite people" popup is
    `aria-modal`, so while it's open the rest of the meeting UI is absent. A
    discovery failure is never treated as "meeting ended" without retries.
-2. **`microphone-button` is not unique** — the main window has one too, and
+4. **`microphone-button` is not unique** — the main window has one too, and
    mid-toggle the two disagree. Always scope lookups to the meeting window.
-3. **References go stale on re-render.** Detect `kAXErrorInvalidUIElement` and
-   re-find — but that alone is NOT enough (see 4).
-4. **The meeting window's subrole varies, and swaps detach elements silently.**
+5. **References go stale on re-render.** Detect `kAXErrorInvalidUIElement` and
+   re-find — but that alone is NOT enough (see 6).
+6. **The meeting window's subrole varies, and swaps detach elements silently.**
    Full meeting window is `AXStandardWindow`; the **compact view** is an
    `AXSystemDialog`. Teams swaps between them as you navigate, and orphaned
    elements keep answering reads with their *last-known* label rather than

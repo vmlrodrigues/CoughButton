@@ -52,6 +52,70 @@ final class ActuatorTests: XCTestCase {
         XCTAssertEqual(result.presses, 0)
     }
 
+    func testEnsureUsesWallClockDeadlineWhenRefreshIsSlow() {
+        let client = FakeMeetingClient()
+        client.states[.mic] = .off
+        client.pressUndeliverable = true
+        var time = Date(timeIntervalSince1970: 0)
+        client.onRefresh = { _ in time.addTimeInterval(1) }
+
+        let result = Actuator.ensure(
+            .mic,
+            is: .on,
+            on: client,
+            deliveryWindow: 0.5,
+            watchWindow: 0.5,
+            wait: instantly,
+            now: { time }
+        )
+
+        XCTAssertFalse(result.succeeded)
+        XCTAssertEqual(client.refreshCount, 1)
+    }
+
+    func testEnsureStopsWatchingWhenCancelledAfterDelivery() {
+        let client = FakeMeetingClient()
+        client.states[.mic] = .off
+        client.pressesToSwallow = 1
+        var cancelled = false
+
+        let result = Actuator.ensure(
+            .mic,
+            is: .on,
+            on: client,
+            wait: { _ in cancelled = true },
+            shouldCancel: { cancelled }
+        )
+
+        XCTAssertFalse(result.succeeded)
+        XCTAssertEqual(result.presses, 1)
+        XCTAssertEqual(client.refreshCount, 0)
+    }
+
+    func testEnsureSettledCatchesDelayedOppositePress() {
+        let client = FakeMeetingClient()
+        client.states[.mic] = .off
+        var time = Date(timeIntervalSince1970: 0)
+        var waits = 0
+
+        let result = Actuator.ensureSettled(
+            .mic,
+            is: .off,
+            on: client,
+            until: time.addingTimeInterval(0.5),
+            wait: { interval in
+                time.addTimeInterval(interval)
+                waits += 1
+                if waits == 2 { client.states[.mic] = .on }
+            },
+            now: { time }
+        )
+
+        XCTAssertTrue(result.succeeded)
+        XCTAssertEqual(result.presses, 1)
+        XCTAssertEqual(client.states[.mic], .off)
+    }
+
     /// The transition case, measured against Teams: taking a meeting fullscreen
     /// moves it to its own Space and the controls vanish from every window for
     /// seconds. Failing instantly is what made the hotkey look like it "didn't

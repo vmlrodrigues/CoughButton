@@ -30,6 +30,27 @@ public enum AX {
         NSWorkspace.shared.open(url)
     }
 
+    /// Prompts Chromium/WebView2 to materialise web accessibility children.
+    ///
+    /// Teams can expose its native window shell while leaving the nested web
+    /// tree as empty groups, even to an already-trusted client. Chromium treats
+    /// these attributes as activation hints. Some WebView2 builds return
+    /// `attributeUnsupported`/`notImplemented` from the setters while still
+    /// materialising the tree, so the return values are deliberately ignored.
+    public static func prepareWebAccessibility(ofPID pid: pid_t) {
+        let app = AXUIElementCreateApplication(pid)
+        _ = AXUIElementSetAttributeValue(
+            app,
+            "AXManualAccessibility" as CFString,
+            kCFBooleanTrue
+        )
+        _ = AXUIElementSetAttributeValue(
+            app,
+            "AXEnhancedUserInterface" as CFString,
+            kCFBooleanTrue
+        )
+    }
+
     // MARK: Attribute reads
 
     public static func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {

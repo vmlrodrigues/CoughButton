@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-08-13
+
+### Fixed
+
+- Restored hotkeys when Teams' WebView2 Accessibility tree goes dormant by
+  explicitly activating web accessibility and retrying discovery while the
+  controls materialise.
+- Kept actions reliable through fullscreen, minimise/restore, and compact-view
+  transitions by allowing bounded time for delivery and verification while
+  retaining a strict two-press maximum.
+- Made push-to-talk key-up cancel in-flight key-down work and continue watching
+  for a delayed unmute, re-muting it if it lands after the key is released.
+- Rejected detached meeting-window references that continue returning stale
+  labels after Teams replaces a full or compact meeting window.
+- Recognised Teams' full-screen presenter window while sharing an entire screen,
+  where mic, camera, and share controls remain available but the normal hang-up
+  control is absent.
+- Added privacy-safe diagnostics for unverified actions, recording control and
+  window shape without meeting titles or other identifying content.
+
 ## [0.1.0] — 2026-08-07
 
 First release.
@@ -38,5 +58,6 @@ First release.
   locale-independent. State reading uses the English label verbs, which are not;
   on a non-English Teams the controls work but the indicator reads "unknown".
 
-[Unreleased]: https://github.com/vmlrodrigues/CoughButton/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/vmlrodrigues/CoughButton/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/vmlrodrigues/CoughButton/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/vmlrodrigues/CoughButton/releases/tag/v0.1.0
