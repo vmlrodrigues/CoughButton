@@ -48,13 +48,31 @@ enum Tuning {
     /// Consecutive misses tolerated before declaring the meeting over. Absorbs
     /// the brief reference invalidation and asynchronous WebView wake-up Teams
     /// causes, so the menu bar doesn't flap or report idle prematurely.
-    static let missesBeforeIdle = 6
+    ///
+    /// 3.0 s, not the original 0.6 s: exiting Teams full-screen is a macOS
+    /// Space-transition animation that alone runs ~0.5–1 s (Apple does not
+    /// expose a way to shorten it), on top of which Teams tears down the
+    /// presenter window and rebuilds the normal one — FINDINGS.md's own
+    /// fullscreen-transition measurement recorded controls absent from every
+    /// window "for several seconds". 0.6 s left no margin, so the camera
+    /// glyph (only drawn while `inMeeting`) visibly dropped out for that gap —
+    /// invisible on full-screen *entry* only because the menu bar itself is
+    /// hidden by full screen there. This tolerance only delays how promptly
+    /// "no meeting" is shown after a real hang-up; it has no bearing on
+    /// action safety, which `Actuator` bounds separately and much tighter.
+    static let missesBeforeIdle = 30
     /// Discovery is retried on consecutive ticks during this short wake-up
     /// window. Each refresh remains non-blocking so actions cannot queue behind
     /// repeated half-second waits.
-    static let rediscoveryBurst = 6
-    /// Re-discovery cadence while not in a meeting: 20 × 0.1 s = 2 s.
-    static let rediscoverEvery = 20
+    static let rediscoveryBurst = 30
+    /// Re-discovery cadence while not in a meeting, once the wake-up burst is
+    /// exhausted: 90 × 0.1 s = 9 s. Kept well beyond `rediscoveryBurst` so the
+    /// two windows stay distinct — true idle just polls occasionally rather
+    /// than settling for good.
+    static let rediscoverEvery = 90
+    /// Beyond this many misses, a later recovery is a new meeting starting,
+    /// not the tail of a flicker — don't log it as one.
+    static let flickerReportWindow = missesBeforeIdle * 10
 }
 
 /// Confined to `MeetingController.queue`; never touched from anywhere else.
@@ -65,6 +83,11 @@ final class MeetingWorker: @unchecked Sendable {
 
     private let client: MeetingClient
     private var misses = 0
+    /// Miss count at the moment the menu bar actually collapsed to "no
+    /// meeting" (0 while that hasn't happened this outage). Lets recovery log
+    /// how long the glyph was visibly wrong, not just that a miss occurred —
+    /// most misses are absorbed silently and are not worth recording.
+    private var wentIdleAtMisses = 0
     /// Mic state captured when push-to-talk began, so release restores what was
     /// there rather than blindly muting.
     private var pushToTalkRestore: ToggleState?
@@ -80,6 +103,7 @@ final class MeetingWorker: @unchecked Sendable {
         guard AX.isTrusted else { return MeetingSnapshot(accessibilityGranted: false) }
 
         if client.isInMeeting {
+            recordRecoveryIfNeeded()
             misses = 0
             return readSnapshot()
         }
@@ -90,11 +114,33 @@ final class MeetingWorker: @unchecked Sendable {
         if misses <= Tuning.rediscoveryBurst || misses % Tuning.rediscoverEvery == 0 {
             client.refresh()
             if client.isInMeeting {
+                recordRecoveryIfNeeded()
                 misses = 0
                 return readSnapshot()
             }
         }
-        return misses >= Tuning.missesBeforeIdle ? MeetingSnapshot(accessibilityGranted: true) : nil
+        guard misses >= Tuning.missesBeforeIdle else { return nil }
+        // The menu bar is about to visibly collapse to the single "no
+        // meeting" glyph. Record only the first tick of an outage — logging
+        // every subsequent miss would just restate the same event.
+        if wentIdleAtMisses == 0 {
+            wentIdleAtMisses = misses
+        } else if misses - wentIdleAtMisses > Tuning.flickerReportWindow {
+            // This has settled into a genuine "no meeting" for a while now;
+            // a later recovery is a new meeting, not this outage resolving.
+            wentIdleAtMisses = 0
+        }
+        return MeetingSnapshot(accessibilityGranted: true)
+    }
+
+    /// Only fires when a prior miss run was long enough to reach the menu bar
+    /// (`wentIdleAtMisses > 0`) — a re-render absorbed within the burst is not
+    /// a user-visible event and DiagLog stays quiet for it, per its contract.
+    private func recordRecoveryIfNeeded() {
+        guard wentIdleAtMisses > 0 else { return }
+        let outageMs = Int(Double(misses) * Tuning.tickInterval * 1000)
+        DiagLog.write("MEETING-FLICKER recovered after misses=\(misses) (~\(outageMs)ms) " + client.diagnostics)
+        wentIdleAtMisses = 0
     }
 
     func readSnapshot() -> MeetingSnapshot {

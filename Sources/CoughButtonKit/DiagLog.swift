@@ -18,8 +18,16 @@ public enum DiagLog {
     private static let queue = DispatchQueue(label: "com.victorrodrigues.coughbutton.diaglog")
     private static let maxBytes = 256 * 1024
 
+    /// `COUGHBUTTON_LOG_DIR` lets the test suite redirect writes away from the
+    /// real log. Tests run with Accessibility genuinely granted (it is a real
+    /// system gate, not mocked), so without this override, exercising the
+    /// normal miss/recovery paths would write real-looking diagnostic lines
+    /// into the user's actual log on every `swift test` run.
     public static var directory: URL {
-        FileManager.default.homeDirectoryForCurrentUser
+        if let override = ProcessInfo.processInfo.environment["COUGHBUTTON_LOG_DIR"] {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Logs/CoughButton", isDirectory: true)
     }
 

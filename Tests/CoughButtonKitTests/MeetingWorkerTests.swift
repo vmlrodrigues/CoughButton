@@ -145,6 +145,35 @@ final class MeetingWorkerTests: XCTestCase {
         XCTAssertEqual(client.refreshCount, Tuning.rediscoveryBurst)
     }
 
+    /// Regression for the camera glyph vanishing when Teams exits
+    /// full-screen: macOS's own Space-transition animation runs ~0.5–1 s
+    /// before Teams even rebuilds its window, which is longer than the old
+    /// 0.6 s budget but must stay well inside the current one.
+    func testAbsorbsAFullScreenExitLengthGapWithoutGoingIdle() throws {
+        try requireAccessibility()
+        let client = FakeMeetingClient()
+        client.inMeeting = false
+        // 15 ticks == 1.5 s of the meeting window being unfindable while the
+        // old window is torn down and the new one materialises.
+        let gapTicks = 15
+        client.onRefresh = { client in
+            if client.refreshCount == gapTicks {
+                client.inMeeting = true
+            }
+        }
+        let worker = MeetingWorker(client: client)
+
+        var everWentIdle = false
+        var last: MeetingSnapshot?
+        for _ in 0..<gapTicks {
+            last = worker.tick()
+            if last?.inMeeting == false { everWentIdle = true }
+        }
+
+        XCTAssertFalse(everWentIdle, "a gap shorter than missesBeforeIdle must never surface as 'no meeting'")
+        XCTAssertEqual(last?.inMeeting, true)
+    }
+
     // MARK: Actions
 
     func testKeyUpOnAToggleDoesNothing() throws {

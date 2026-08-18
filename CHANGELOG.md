@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Stopped the camera glyph from momentarily vanishing from the menu bar when
+  exiting Teams full-screen back to the main screen. The menu bar's own
+  "no meeting" grace period (previously 0.6 s) was shorter than macOS's own
+  full-screen exit animation, so the two-glyph meeting display briefly
+  collapsed to one glyph while Teams rebuilt its window. Widened the grace
+  period so it comfortably covers that transition.
+- Added a quiet, permanent diagnostic line (only written if the glyph actually
+  visibly flickers) recording how long a meeting was briefly lost, to make any
+  future recurrence immediately measurable instead of anecdotal.
+
 ## [0.2.0] — 2026-08-13
 
 ### Fixed

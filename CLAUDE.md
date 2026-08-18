@@ -82,7 +82,7 @@ Established by measurement, not documentation — see FINDINGS.md and `probe/`.
   (`⇧ ⌘ M`), language-independently and reflecting user remapping — a useful
   fallback for identifying controls if the DOM ids change.
 
-### Six gotchas that will bite you
+### Seven gotchas that will bite you
 
 1. **WebView2 can expose only empty groups until explicitly awakened.** The
    native meeting window remains present, but every control is absent and all
@@ -111,6 +111,15 @@ Established by measurement, not documentation — see FINDINGS.md and `probe/`.
    the wrong way and can leave you live when you asked to be muted. Hence
    `cachedWindowIsCurrent()` — verify the window is still in Teams' live window
    list, not just that the element hasn't been invalidated.
+7. **Exiting full-screen is a window swap wrapped in a macOS animation you
+   don't control.** The Space-transition alone runs ~0.5–1 s before Teams even
+   tears down the presenter window and rebuilds the normal one — longer than
+   the display-side "no meeting" grace period once was (0.6 s), so the
+   two-glyph menu bar icon briefly collapsed to one glyph mid-transition. It
+   went unnoticed on full-screen *entry* only because full screen hides the
+   menu bar there. `Tuning.missesBeforeIdle` / `rediscoveryBurst` (3.0 s) cover
+   this now; a `MEETING-FLICKER` line in the diagnostic log (only written if
+   the glyph actually visibly flickers) records how long any future gap runs.
 
 ## Architecture
 

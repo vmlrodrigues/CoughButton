@@ -63,7 +63,7 @@ run:
 	@open ./$(APP) 2>/dev/null || { echo "Build first:  make local"; exit 1; }
 
 test:
-	$(TEST_ENV) swift test
+	COUGHBUTTON_LOG_DIR=$$(mktemp -d) $(TEST_ENV) swift test
 
 icons:
 	swift tools/icon-gen.swift . app
