@@ -47,6 +47,15 @@ public final class TeamsAXClient: MeetingClient, @unchecked Sendable {
     ]
     private var meetingWindow: AXUIElement?
     private var buttons: [MeetingControl: AXUIElement] = [:]
+    /// The DOM id each cached element had *at discovery time*. WebView2/Chromium
+    /// can recycle an accessibility node to represent a different DOM element
+    /// after a re-render, without invalidating the reference — the same class
+    /// of bug documented above for window swaps, but for individual controls.
+    /// A recycled node still passes `isStale`/`cachedWindowIsCurrent`, so it is
+    /// re-verified against this recorded id before every press or read; a
+    /// mismatch is treated exactly like staleness (cause a refresh) rather than
+    /// trusting the dictionary key forever.
+    private var expectedDOMIDs: [MeetingControl: String] = [:]
 
     public init() {}
 
@@ -110,6 +119,7 @@ public final class TeamsAXClient: MeetingClient, @unchecked Sendable {
     public func refresh() {
         meetingWindow = nil
         buttons.removeAll()
+        expectedDOMIDs.removeAll()
 
         guard AX.isTrusted, let pid = teamsPID() else { return }
 
@@ -132,8 +142,25 @@ public final class TeamsAXClient: MeetingClient, @unchecked Sendable {
         for (control, id) in wanted {
             if let element = located.elements[id] {
                 buttons[control] = element
+                expectedDOMIDs[control] = id
             }
         }
+    }
+
+    /// The cached element for `control`, but only if it is still the same
+    /// window, not stale, *and* still reports the DOM id we discovered it
+    /// under. That third check is what catches a recycled node: without it, a
+    /// cached "mic" reference silently repurposed to the camera button would
+    /// still pass every other guard, and a press would land on the wrong
+    /// control with no error to show for it.
+    private func verifiedElement(for control: MeetingControl) -> AXUIElement? {
+        guard let cached = buttons[control],
+              let expected = expectedDOMIDs[control],
+              cachedWindowIsCurrent(),
+              !AX.isStale(cached),
+              Self.domID(cached) == expected
+        else { return nil }
+        return cached
     }
 
     /// Is the window we discovered against still one of Teams' current windows?
@@ -160,25 +187,20 @@ public final class TeamsAXClient: MeetingClient, @unchecked Sendable {
 
     // MARK: MeetingClient
 
-    /// Cheap by contract: one cached-reference read, no walking. Returning
-    /// `false` here means "re-discover soon", not "the meeting has ended" —
-    /// the controller decides that after several consecutive misses.
+    /// Cheap by contract: a couple of cached-reference reads, no walking.
+    /// Returning `false` here means "re-discover soon", not "the meeting has
+    /// ended" — the controller decides that after several consecutive misses.
     public var isInMeeting: Bool {
-        guard let cached = buttons[.mic], cachedWindowIsCurrent() else { return false }
-        return !AX.isStale(cached)
+        verifiedElement(for: .mic) != nil
     }
 
     public func state(of control: MeetingControl) -> ToggleState {
-        guard let cached = buttons[control],
-              cachedWindowIsCurrent(),
-              !AX.isStale(cached) else { return .unknown }
+        guard let cached = verifiedElement(for: control) else { return .unknown }
         return ControlLabels.state(of: control, fromLabel: AX.label(cached))
     }
 
     public func press(_ control: MeetingControl) -> Bool {
-        guard let cached = buttons[control],
-              cachedWindowIsCurrent(),
-              !AX.isStale(cached) else { return false }
+        guard let cached = verifiedElement(for: control) else { return false }
         return AX.press(cached)
     }
 

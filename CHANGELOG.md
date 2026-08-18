@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a quiet, permanent diagnostic line (only written if the glyph actually
   visibly flickers) recording how long a meeting was briefly lost, to make any
   future recurrence immediately measurable instead of anecdotal.
+- Hardened control identity: a cached mic/camera/hand reference is now
+  re-verified against the DOM id it was discovered under before every press or
+  read, not just checked for staleness. WebView2 can recycle an accessibility
+  node to represent a different control after a re-render without ever
+  invalidating the reference, which previously could have let a hotkey act on
+  the wrong control with no error reported.
 
 ## [0.2.0] — 2026-08-13
 

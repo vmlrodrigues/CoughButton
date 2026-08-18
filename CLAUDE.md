@@ -82,7 +82,7 @@ Established by measurement, not documentation — see FINDINGS.md and `probe/`.
   (`⇧ ⌘ M`), language-independently and reflecting user remapping — a useful
   fallback for identifying controls if the DOM ids change.
 
-### Seven gotchas that will bite you
+### Eight gotchas that will bite you
 
 1. **WebView2 can expose only empty groups until explicitly awakened.** The
    native meeting window remains present, but every control is absent and all
@@ -120,6 +120,18 @@ Established by measurement, not documentation — see FINDINGS.md and `probe/`.
    menu bar there. `Tuning.missesBeforeIdle` / `rediscoveryBurst` (3.0 s) cover
    this now; a `MEETING-FLICKER` line in the diagnostic log (only written if
    the glyph actually visibly flickers) records how long any future gap runs.
+8. **A cached element can be repurposed, not just invalidated — hardened
+   against, not yet reproduced.** Gotcha 6 already established that Teams
+   leaves detached elements answering with a stale label instead of erroring.
+   WebView2/Chromium is also known to recycle accessibility node objects
+   across re-renders, which would let a cached "mic" reference silently start
+   representing a different control (e.g. camera) while still passing every
+   guard above (`isStale` false, window still current). `TeamsAXClient` now
+   also records the DOM id each control was discovered under and re-checks it
+   before every press or read, treating a mismatch like staleness. This was
+   added defensively after a reported (but unreproduced) case of a mic hotkey
+   appearing to also flip the camera; there is no confirmed measurement behind
+   it the way the other gotchas have, so treat it as a hardening, not a fact.
 
 ## Architecture
 
