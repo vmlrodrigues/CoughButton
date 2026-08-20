@@ -74,7 +74,12 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         }
 
         menu.addItem(.separator())
-        menu.addItem(item(title: "Settings…", action: #selector(openSettings), keyEquivalent: ","))
+        let settingsItem = item(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        // AppKit assigns Settings a default gear. Assigning any image first
+        // clears that default-image state, after which nil actually removes it.
+        settingsItem.image = NSImage(size: NSSize(width: 1, height: 1))
+        settingsItem.image = nil
+        menu.addItem(settingsItem)
         menu.addItem(item(title: "Check for Updates…", action: #selector(checkForUpdates)))
         menu.addItem(.separator())
         menu.addItem(item(title: "Quit CoughButton", action: #selector(quit), keyEquivalent: "q"))

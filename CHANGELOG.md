@@ -48,6 +48,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Removed AppKit's automatic gear icon from the Settings item in the menu-bar
+  menu so Settings, Check for Updates, and Quit share the same text alignment.
 - Removed the second accepted `AXPress` from every actuation. Both real
   minimized-window failures logged `presses=2`: the old actuator waited for
   0.5 seconds, then treated an accepted press whose result was not yet visible
