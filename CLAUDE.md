@@ -82,7 +82,7 @@ Established by measurement, not documentation — see FINDINGS.md and `probe/`.
   (`⇧ ⌘ M`), language-independently and reflecting user remapping — a useful
   fallback for identifying controls if the DOM ids change.
 
-### Nine gotchas that will bite you
+### Ten gotchas that will bite you
 
 1. **WebView2 can expose only empty groups until explicitly awakened.** The
    native meeting window remains present, but every control is absent and all
@@ -177,6 +177,37 @@ Established by measurement, not documentation — see FINDINGS.md and `probe/`.
    state changes away from what was believed within 30 s with no further
    CoughButton action recorded in between. The next occurrence should produce
    both lines back to back, which would settle this definitively.
+10. **A window in native macOS fullscreen on an inactive Space is completely
+    invisible to `kAXWindowsAttribute` — confirmed, and there is no public-API
+    fix.** This is different from gotcha 9: an ordinary windowed Teams window
+    parked on another regular desktop Space enumerates fine (proved earlier by
+    walking its full 757-node tree). A window in *native* fullscreen is
+    different — macOS gives it its own dedicated Space, and while that Space
+    isn't the active one, `AXUIElementCreateApplication(pid)` →
+    `kAXWindowsAttribute` silently omits it, even though the window is
+    genuinely still there. Confirmed live: `CGWindowListCopyWindowInfo`
+    reported a real "Meeting with ..." window (id 6211, bounds 1710×1073,
+    `onscreen=false`) that `kAXWindowsAttribute` never returned in the same
+    instant — while Xcode's Accessibility Inspector *could* read
+    `microphone-button` on it, because the user had switched to that Space to
+    point Inspector at it, which is the one condition that makes it visible.
+    This is documented, expected macOS behaviour with no public workaround
+    (see `alt-tab-macos#14`) — window switchers hit the exact same wall.
+    Private APIs (e.g. `CGSCopyManagedDisplaySpaces`) could theoretically see
+    more, but they're unsupported, break across OS versions, and would still
+    need a *different* private API to get a pressable `AXUIElement` for a
+    window AX itself refuses to enumerate — not something to take on for this
+    project's zero-dependency, stability-first bar without a much stronger
+    case than one report. Practical fallout: if the compact "mini" window is
+    open (even minimized — minimization doesn't hide its tree, only the
+    fullscreen-Space exclusion does), hotkeys keep working through it per
+    gotcha 9's fallback. If the mini window is closed and the *only* meeting
+    controls live in a fullscreen window on a Space you've since switched away
+    from, CoughButton finds zero controls anywhere and correctly reports
+    unknown/fails rather than lying — but this is very likely the real
+    explanation for the earlier "full-screen sharing breaks the hotkeys"
+    report: whichever Space you're actively looking at (e.g. the shared
+    content, if it's also fullscreen) is what matters, not "sharing" per se.
 
 ## Architecture
 
