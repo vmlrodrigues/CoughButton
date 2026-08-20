@@ -219,4 +219,85 @@ final class MeetingWorkerTests: XCTestCase {
 
         XCTAssertEqual(worker.readSnapshot().inMeeting, false)
     }
+
+    /// Reported (not reproduced) symptom: a toggle verified as succeeded
+    /// through a minimized meeting window, while the real state allegedly
+    /// never changed. No behaviour change follows from this alone — only a
+    /// diagnostic line, so a recurrence carries hard evidence.
+    ///
+    /// The log file is shared across the whole test run (one `COUGHBUTTON_LOG_DIR`
+    /// per `swift test` invocation), so assertions only inspect bytes appended
+    /// *after* this test's own action, never the file's full history — otherwise
+    /// test order could make an unrelated write look like this test's own.
+    func testLogsWhenATogglesSucceedsThroughAMinimizedWindow() throws {
+        try requireAccessibility()
+        let client = FakeMeetingClient()
+        client.actingWindowIsMinimized = true
+        client.states[.mic] = .off
+        let worker = MeetingWorker(client: client)
+
+        let before = logSizeNow()
+        _ = worker.apply(.toggleMic, phase: .began)
+
+        XCTAssertTrue(
+            newLogContent(since: before).contains("ACTUATED-VIA-MINIMIZED-WINDOW toggleMic"),
+            "a succeeded toggle through a minimized window must be logged for evidence"
+        )
+    }
+
+    /// The common case — not minimized — must stay quiet, matching the
+    /// existing "only genuinely informative events" logging philosophy.
+    func testStaysQuietWhenATogglesSucceedsThroughANonMinimizedWindow() throws {
+        try requireAccessibility()
+        let client = FakeMeetingClient()
+        client.actingWindowIsMinimized = false
+        client.states[.camera] = .off
+        let worker = MeetingWorker(client: client)
+
+        let before = logSizeNow()
+        _ = worker.apply(.toggleCamera, phase: .began)
+
+        XCTAssertFalse(newLogContent(since: before).contains("ACTUATED-VIA-MINIMIZED-WINDOW"))
+    }
+
+    /// Push-to-talk fires on every hold; scoped out of the minimized-window
+    /// diagnostic so normal use doesn't flood the log.
+    func testPushToTalkThroughAMinimizedWindowDoesNotLog() throws {
+        try requireAccessibility()
+        let client = FakeMeetingClient()
+        client.actingWindowIsMinimized = true
+        client.states[.mic] = .off
+        let worker = MeetingWorker(client: client)
+
+        let before = logSizeNow()
+        _ = worker.apply(.pushToTalk, phase: .began)
+
+        XCTAssertFalse(newLogContent(since: before).contains("ACTUATED-VIA-MINIMIZED-WINDOW"))
+    }
+
+    // MARK: Log helpers
+
+    /// Current byte length of the (redirected) diagnostic log, or 0 if it
+    /// doesn't exist yet. `DiagLog` writes asynchronously, so callers must
+    /// settle before reading — see `newLogContent(since:)`.
+    private func logSizeNow() -> Int {
+        settleLogQueue()
+        return (try? FileManager.default.attributesOfItem(atPath: DiagLog.fileURL.path))?[.size] as? Int ?? 0
+    }
+
+    /// The portion of the log written after byte offset `before` — never the
+    /// whole file, since it accumulates entries across the entire test run.
+    private func newLogContent(since before: Int) -> String {
+        settleLogQueue()
+        guard let data = try? Data(contentsOf: DiagLog.fileURL), data.count > before else { return "" }
+        return String(data: data.suffix(from: before), encoding: .utf8) ?? ""
+    }
+
+    /// `DiagLog.write` dispatches asynchronously onto its own serial queue;
+    /// give it a moment to land before reading the file back.
+    private func settleLogQueue() {
+        let expectation = XCTestExpectation(description: "log write settles")
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) { expectation.fulfill() }
+        wait(for: [expectation], timeout: 1.0)
+    }
 }

@@ -82,7 +82,7 @@ Established by measurement, not documentation — see FINDINGS.md and `probe/`.
   (`⇧ ⌘ M`), language-independently and reflecting user remapping — a useful
   fallback for identifying controls if the DOM ids change.
 
-### Eight gotchas that will bite you
+### Nine gotchas that will bite you
 
 1. **WebView2 can expose only empty groups until explicitly awakened.** The
    native meeting window remains present, but every control is absent and all
@@ -132,6 +132,27 @@ Established by measurement, not documentation — see FINDINGS.md and `probe/`.
    added defensively after a reported (but unreproduced) case of a mic hotkey
    appearing to also flip the camera; there is no confirmed measurement behind
    it the way the other gotchas have, so treat it as a hardening, not a fact.
+9. **A minimized meeting window can still be the only one with controls —
+   whether that's actually a problem is unconfirmed.** Reported scenario: the
+   Teams main window is on another Space, its compact "mini" window is
+   minimized, and a mic-unmute hotkey reads back as succeeded but the mic is
+   allegedly still muted in the real meeting. A read-only probe against a
+   live meeting confirmed the setup — the main window currently exposes zero
+   known controls, so the minimized compact window is necessarily the one
+   `locateMeetingWindow` selects; there is no other live control being
+   ignored. Two explanations are equally plausible and neither is confirmed:
+   (a) a minimized window's WebView2 renderer is suspended enough that
+   `AXPress` can report success (even flip a cached label) without the real
+   click handler ever firing, or (b) the main window simply has no live
+   status of its own to contradict right now, and what looked like "it didn't
+   actually mute" was reading a stale/cosmetic indicator elsewhere in Teams.
+   Chromium's Page Visibility throttling affects timers and `rAF`, not
+   synchronous click dispatch, which weakens but doesn't rule out (a). No
+   actuation behaviour was changed on the strength of an unconfirmed report;
+   instead `MeetingClient.isActingWindowMinimized` and an
+   `ACTUATED-VIA-MINIMIZED-WINDOW` diagnostic line (toggles only, not
+   push-to-talk) exist purely so a recurrence produces evidence instead of an
+   account of which window was in play.
 
 ## Architecture
 

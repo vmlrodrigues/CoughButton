@@ -206,7 +206,9 @@ public final class TeamsAXClient: MeetingClient, @unchecked Sendable {
 
     /// Shape of the window situation, with no titles — see the protocol note.
     /// This is the context that makes a failed action diagnosable: which window
-    /// modes were in play when the controls went missing.
+    /// modes were in play when the controls went missing. The window currently
+    /// backing actuation (if any) is marked `*acting*` so a log line can be
+    /// correlated with exactly which window a press/read went through.
     public var diagnostics: String {
         guard let pid = teamsPID() else { return "teams=absent" }
         let windows = AX.windows(ofPID: pid)
@@ -221,8 +223,23 @@ public final class TeamsAXClient: MeetingClient, @unchecked Sendable {
             let ids = Set(Self.knownElements(in: window).keys)
             let hasControls = Self.isMeetingWindow(domIdentifiers: ids)
             parts.append(hasControls ? "controls" : "no-controls")
+            if let meetingWindow, CFEqual(window, meetingWindow) {
+                parts.append("acting")
+            }
             return parts.joined(separator: "/")
         }
         return "windows=[\(shapes.joined(separator: ", "))] cached=\(buttons.count)"
+    }
+
+    /// Cheap signal for whether the window currently backing actuation is
+    /// minimized. Not used to change press/verify behaviour — neither pressing
+    /// nor reading a minimized window's controls is known to be unsafe, only
+    /// reported as *possibly* silently ineffective. Exists purely so a
+    /// diagnostic line can capture hard evidence the next time this is seen,
+    /// rather than relying on an after-the-fact account of which window was in
+    /// play. See CLAUDE.md gotcha 9.
+    public var isActingWindowMinimized: Bool {
+        guard let meetingWindow else { return false }
+        return (AX.attribute(meetingWindow, kAXMinimizedAttribute) as? NSNumber)?.boolValue == true
     }
 }

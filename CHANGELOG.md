@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A quiet diagnostic line for a reported (not yet reproduced) symptom: a
+  mic/camera toggle can be verified as succeeded while the Teams window
+  backing that action is minimized. Neither hypothesis for why is confirmed
+  — it may be a genuine actuation bug, or a stale/cosmetic status elsewhere in
+  Teams — so no actuation or verification behaviour changed. If it recurs,
+  the log will now say so instead of relying on an account of which window
+  was in play. See gotcha 9 ("Nine gotchas that will bite you") in
+  `CLAUDE.md`.
+
 ## [0.2.1] — 2026-08-19
 
 ### Fixed

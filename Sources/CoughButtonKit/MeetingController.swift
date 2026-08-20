@@ -177,6 +177,20 @@ final class MeetingWorker: @unchecked Sendable {
                 + "presses=\(result.presses) observed=\(result.finalState.rawValue) "
                 + client.diagnostics)
         }
+        // A reported (not yet reproduced) symptom: a toggle can be verified as
+        // succeeded by reading a minimized meeting window's own controls, while
+        // the real backend state never changed — which the menu bar could then
+        // show confidently and wrongly. Not known to actually happen; logged
+        // only so a recurrence carries hard evidence instead of an account of
+        // which window was in play. Scoped to the momentary toggles a user
+        // notices immediately, not push-to-talk, which would otherwise log on
+        // every hold. See CLAUDE.md gotcha 9.
+        if let result, result.succeeded, action != .pushToTalk, phase == .began,
+           client.isActingWindowMinimized {
+            DiagLog.write("ACTUATED-VIA-MINIMIZED-WINDOW \(action.rawValue) "
+                + "presses=\(result.presses) observed=\(result.finalState.rawValue) "
+                + client.diagnostics)
+        }
         return result
     }
 

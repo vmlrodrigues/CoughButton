@@ -45,10 +45,19 @@ public protocol MeetingClient: AnyObject {
     /// organisation and the signed-in address in them, and this string is meant
     /// to be safe to paste into a public issue.
     var diagnostics: String { get }
+
+    /// Whether the window currently backing actuation is minimized. Cheap by
+    /// contract — same constraint as `isInMeeting`. Exists so a diagnostic line
+    /// can be attached to an action taken through a minimized window, since it
+    /// is not yet known whether that is ever unsafe (see CLAUDE.md gotcha 9).
+    /// Defaults to `false` so clients that have no notion of "minimized" don't
+    /// need to implement it.
+    var isActingWindowMinimized: Bool { get }
 }
 
 public extension MeetingClient {
     var diagnostics: String { "" }
+    var isActingWindowMinimized: Bool { false }
 }
 
 // ---------------------------------------------------------------------------

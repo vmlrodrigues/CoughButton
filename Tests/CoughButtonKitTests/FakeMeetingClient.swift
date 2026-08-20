@@ -20,10 +20,15 @@ final class FakeMeetingClient: MeetingClient {
     var pressUndeliverable = false
     /// Every state read comes back `.unknown`.
     var reportsUnknown = false
+    /// Simulates the reported (unconfirmed) minimized-window scenario: lets a
+    /// test verify MeetingWorker's ACTUATED-VIA-MINIMIZED-WINDOW diagnostic
+    /// fires exactly when it should.
+    var actingWindowIsMinimized = false
     /// Applied by `refresh()`, so a test can make re-discovery "fix" things.
     var onRefresh: ((FakeMeetingClient) -> Void)?
 
     var isInMeeting: Bool { inMeeting }
+    var isActingWindowMinimized: Bool { actingWindowIsMinimized }
 
     func state(of control: MeetingControl) -> ToggleState {
         if reportsUnknown { return .unknown }
