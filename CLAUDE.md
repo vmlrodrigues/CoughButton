@@ -140,22 +140,37 @@ Established by measurement, not documentation — see FINDINGS.md and `probe/`.
    meeting. A read-only probe against a live meeting confirmed the setup —
    the main window currently exposes zero known controls, so the minimized
    compact window is necessarily the one `locateMeetingWindow` selects; there
-   is no other live control being ignored. On reproduction (2026-08-20 17:24),
-   the log recorded `ACTUATED-VIA-MINIMIZED-WINDOW toggleMic ... observed=on`;
-   a follow-up read-only probe roughly two minutes later, with zero further
-   presses logged in between, found the same control's own label back to
-   `"Unmute mic"` (muted) — the control reverted with nothing in CoughButton
-   touching it. That is close to conclusive for "the press didn't really
-   take, or Teams reverted it," but not fully: it can't rule out the user
-   muting again through Teams' own UI in that window, which would look
-   identical from the outside. Chromium's Page Visibility throttling affects
-   timers and `rAF`, not synchronous click dispatch, which weakens but
-   doesn't rule out a suspended-renderer explanation either. No actuation
-   behaviour has been changed on the strength of this — pressing through a
-   minimized window is not yet refused, since doing so would break a
-   seemingly common and otherwise-working usage pattern (main window on
-   another Space, mini window minimized) on the strength of one incident.
-   Observability was extended instead: `MeetingClient.isActingWindowMinimized`
+   is no other live control being ignored. This is not a Spaces/Accessibility
+   limitation: `kAXWindowsAttribute` returns every one of Teams' windows
+   regardless of which Space it's on, and CoughButton enumerates the main
+   window every poll tick (it's the `AXStandardWindow` in the `windows=[...]`
+   diagnostics). A follow-up probe confirmed *why* it has no controls: its
+   WebView2 tree is fully alive (757 real accessibility nodes, not the empty
+   groups gotcha 1 describes), and re-issuing the same wake-up hint
+   `refresh()` already calls made no difference — none of the five known
+   control DOM ids exist anywhere in that tree. Teams evidently hosts the
+   meeting toolbar in only one place at a time; once it's popped out into the
+   separate mini window, the main window's own DOM simply doesn't contain
+   those controls, independent of Space or minimized state. So there is no
+   alternate, better window CoughButton could have chosen instead — the mini
+   window is the only place the controls exist, full stop. Whether pressing
+   through it while *minimized specifically* is what causes a press not to
+   take is the part that remains unconfirmed. On reproduction (2026-08-20
+   17:24), the log recorded `ACTUATED-VIA-MINIMIZED-WINDOW toggleMic ...
+   observed=on`; a follow-up read-only probe roughly two minutes later, with
+   zero further presses logged in between, found the same control's own
+   label back to `"Unmute mic"` (muted) — the control reverted with nothing
+   in CoughButton touching it. That is close to conclusive for "the press
+   didn't really take, or Teams reverted it," but not fully: it can't rule
+   out the user muting again through Teams' own UI in that window, which
+   would look identical from the outside. Chromium's Page Visibility
+   throttling affects timers and `rAF`, not synchronous click dispatch,
+   which weakens but doesn't rule out a suspended-renderer explanation
+   either. No actuation behaviour has been changed on the strength of this —
+   pressing through a minimized window is not yet refused, since doing so
+   would break a seemingly common and otherwise-working usage pattern (main
+   window on another Space, mini window minimized) on the strength of one
+   incident. Observability was extended instead: `MeetingClient.isActingWindowMinimized`
    plus two diagnostic lines — `ACTUATED-VIA-MINIMIZED-WINDOW` (toggles only,
    not push-to-talk) when a press through a minimized window is verified as
    succeeded, and `REVERTED-AFTER-MINIMIZED-ACTUATION` if that same control's
