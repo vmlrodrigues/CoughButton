@@ -132,27 +132,36 @@ Established by measurement, not documentation — see FINDINGS.md and `probe/`.
    added defensively after a reported (but unreproduced) case of a mic hotkey
    appearing to also flip the camera; there is no confirmed measurement behind
    it the way the other gotchas have, so treat it as a hardening, not a fact.
-9. **A minimized meeting window can still be the only one with controls —
-   whether that's actually a problem is unconfirmed.** Reported scenario: the
-   Teams main window is on another Space, its compact "mini" window is
-   minimized, and a mic-unmute hotkey reads back as succeeded but the mic is
-   allegedly still muted in the real meeting. A read-only probe against a
-   live meeting confirmed the setup — the main window currently exposes zero
-   known controls, so the minimized compact window is necessarily the one
-   `locateMeetingWindow` selects; there is no other live control being
-   ignored. Two explanations are equally plausible and neither is confirmed:
-   (a) a minimized window's WebView2 renderer is suspended enough that
-   `AXPress` can report success (even flip a cached label) without the real
-   click handler ever firing, or (b) the main window simply has no live
-   status of its own to contradict right now, and what looked like "it didn't
-   actually mute" was reading a stale/cosmetic indicator elsewhere in Teams.
-   Chromium's Page Visibility throttling affects timers and `rAF`, not
-   synchronous click dispatch, which weakens but doesn't rule out (a). No
-   actuation behaviour was changed on the strength of an unconfirmed report;
-   instead `MeetingClient.isActingWindowMinimized` and an
-   `ACTUATED-VIA-MINIMIZED-WINDOW` diagnostic line (toggles only, not
-   push-to-talk) exist purely so a recurrence produces evidence instead of an
-   account of which window was in play.
+9. **A minimized meeting window can still be the only one with controls, and
+   pressing through it may not actually take — strong evidence, not yet
+   airtight proof.** Reported scenario: the Teams main window is on another
+   Space, its compact "mini" window is minimized, and a mic-unmute hotkey
+   reads back as succeeded but the mic is allegedly still muted in the real
+   meeting. A read-only probe against a live meeting confirmed the setup —
+   the main window currently exposes zero known controls, so the minimized
+   compact window is necessarily the one `locateMeetingWindow` selects; there
+   is no other live control being ignored. On reproduction (2026-08-20 17:24),
+   the log recorded `ACTUATED-VIA-MINIMIZED-WINDOW toggleMic ... observed=on`;
+   a follow-up read-only probe roughly two minutes later, with zero further
+   presses logged in between, found the same control's own label back to
+   `"Unmute mic"` (muted) — the control reverted with nothing in CoughButton
+   touching it. That is close to conclusive for "the press didn't really
+   take, or Teams reverted it," but not fully: it can't rule out the user
+   muting again through Teams' own UI in that window, which would look
+   identical from the outside. Chromium's Page Visibility throttling affects
+   timers and `rAF`, not synchronous click dispatch, which weakens but
+   doesn't rule out a suspended-renderer explanation either. No actuation
+   behaviour has been changed on the strength of this — pressing through a
+   minimized window is not yet refused, since doing so would break a
+   seemingly common and otherwise-working usage pattern (main window on
+   another Space, mini window minimized) on the strength of one incident.
+   Observability was extended instead: `MeetingClient.isActingWindowMinimized`
+   plus two diagnostic lines — `ACTUATED-VIA-MINIMIZED-WINDOW` (toggles only,
+   not push-to-talk) when a press through a minimized window is verified as
+   succeeded, and `REVERTED-AFTER-MINIMIZED-ACTUATION` if that same control's
+   state changes away from what was believed within 30 s with no further
+   CoughButton action recorded in between. The next occurrence should produce
+   both lines back to back, which would settle this definitively.
 
 ## Architecture
 

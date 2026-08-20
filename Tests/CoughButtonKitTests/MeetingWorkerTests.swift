@@ -275,6 +275,96 @@ final class MeetingWorkerTests: XCTestCase {
         XCTAssertFalse(newLogContent(since: before).contains("ACTUATED-VIA-MINIMIZED-WINDOW"))
     }
 
+    /// The scenario that actually happened on 2026-08-20: a mic toggle logged
+    /// ACTUATED-VIA-MINIMIZED-WINDOW/on, and a later poll read the same
+    /// control back as muted with no intervening CoughButton action. This is
+    /// the diagnostic that would prove it wasn't a one-off — simulated here
+    /// by changing the fake's underlying state directly (standing in for the
+    /// real backend reverting it on its own).
+    func testDetectsAStateThatRevertsAfterAMinimizedWindowActuation() throws {
+        try requireAccessibility()
+        let client = FakeMeetingClient()
+        client.actingWindowIsMinimized = true
+        client.states[.mic] = .off
+        let worker = MeetingWorker(client: client)
+
+        _ = worker.apply(.toggleMic, phase: .began)
+        XCTAssertEqual(client.state(of: .mic), .on, "the fake's own toggle should have flipped it")
+
+        client.states[.mic] = .off // nothing in CoughButton touched this
+
+        let before = logSizeNow()
+        _ = worker.readSnapshot()
+
+        XCTAssertTrue(
+            newLogContent(since: before).contains("REVERTED-AFTER-MINIMIZED-ACTUATION mic actuatedTo=on now=off"),
+            "a control reverting with no intervening CoughButton action must be logged"
+        )
+    }
+
+    /// The common case: the control keeps reading back what was believed —
+    /// must stay quiet indefinitely, not just on the first read.
+    func testStaysQuietWhenStateMatchesTheMinimizedWindowBelief() throws {
+        try requireAccessibility()
+        let client = FakeMeetingClient()
+        client.actingWindowIsMinimized = true
+        client.states[.mic] = .off
+        let worker = MeetingWorker(client: client)
+
+        _ = worker.apply(.toggleMic, phase: .began)
+
+        let before = logSizeNow()
+        _ = worker.readSnapshot()
+        _ = worker.readSnapshot()
+
+        XCTAssertFalse(newLogContent(since: before).contains("REVERTED-AFTER-MINIMIZED-ACTUATION"))
+    }
+
+    /// A later, intentional toggle of the same control — even through a
+    /// normal window — must clear the earlier belief rather than have its own
+    /// legitimate state change mistaken for an unprompted revert.
+    func testDoesNotMisreportALaterIntentionalToggleAsARevert() throws {
+        try requireAccessibility()
+        let client = FakeMeetingClient()
+        client.actingWindowIsMinimized = true
+        client.states[.mic] = .off
+        let worker = MeetingWorker(client: client)
+
+        _ = worker.apply(.toggleMic, phase: .began) // off -> on, belief recorded
+
+        client.actingWindowIsMinimized = false
+        _ = worker.apply(.toggleMic, phase: .began) // on -> off, the user's own doing
+
+        let before = logSizeNow()
+        _ = worker.readSnapshot()
+
+        XCTAssertFalse(newLogContent(since: before).contains("REVERTED-AFTER-MINIMIZED-ACTUATION"))
+    }
+
+    /// `.unknown` (a momentarily unreadable tree) must neither confirm nor
+    /// silently clear an active belief — the watch has to survive a blip and
+    /// still catch the revert once the control becomes readable again.
+    func testUnknownReadingsDoNotClearTheRevertWatch() throws {
+        try requireAccessibility()
+        let client = FakeMeetingClient()
+        client.actingWindowIsMinimized = true
+        client.states[.mic] = .off
+        let worker = MeetingWorker(client: client)
+
+        _ = worker.apply(.toggleMic, phase: .began) // belief: mic = on
+
+        client.reportsUnknown = true
+        let duringBlip = logSizeNow()
+        _ = worker.readSnapshot()
+        XCTAssertFalse(newLogContent(since: duringBlip).contains("REVERTED-AFTER-MINIMIZED-ACTUATION"))
+
+        client.reportsUnknown = false
+        client.states[.mic] = .off
+        let afterBlip = logSizeNow()
+        _ = worker.readSnapshot()
+        XCTAssertTrue(newLogContent(since: afterBlip).contains("REVERTED-AFTER-MINIMIZED-ACTUATION"))
+    }
+
     // MARK: Log helpers
 
     /// Current byte length of the (redirected) diagnostic log, or 0 if it

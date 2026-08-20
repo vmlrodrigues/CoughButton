@@ -9,14 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- A quiet diagnostic line for a reported (not yet reproduced) symptom: a
-  mic/camera toggle can be verified as succeeded while the Teams window
-  backing that action is minimized. Neither hypothesis for why is confirmed
-  — it may be a genuine actuation bug, or a stale/cosmetic status elsewhere in
-  Teams — so no actuation or verification behaviour changed. If it recurs,
-  the log will now say so instead of relying on an account of which window
-  was in play. See gotcha 9 ("Nine gotchas that will bite you") in
-  `CLAUDE.md`.
+- Two quiet diagnostic lines for a mic/camera toggle acted through a
+  minimized Teams window: `ACTUATED-VIA-MINIMIZED-WINDOW` when such a press
+  is verified as succeeded, and `REVERTED-AFTER-MINIMIZED-ACTUATION` if that
+  same control's state changes away from what was believed within 30 s with
+  no further hotkey action in between. Reproduced once (2026-08-20): a mic
+  toggle logged as succeeded, then read back as muted again roughly two
+  minutes later with nothing else touching it — strong evidence the press
+  didn't actually take effect, though not fully conclusive (a manual re-mute
+  through Teams' own UI would look identical from the outside). No actuation
+  behaviour changed on the strength of this; pressing through a minimized
+  window is not refused, since doing so would break what looks like a common,
+  otherwise-working usage pattern. See gotcha 9 ("Nine gotchas that will bite
+  you") in `CLAUDE.md`.
 
 ## [0.2.1] — 2026-08-19
 

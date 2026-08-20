@@ -94,6 +94,32 @@ final class MeetingWorker: @unchecked Sendable {
     /// True once key-down delivered an unmute that could still land after the
     /// physical key has been released.
     private var pushToTalkUnmuteDelivered = false
+    /// Belief formed the moment a toggle is verified as succeeded through a
+    /// minimized window: which state we believe the control now holds, and
+    /// when. Compared against every later poll read (`readSnapshot`) to catch
+    /// the control reverting on its own with no further CoughButton action in
+    /// between — a live reproduction on 2026-08-20 found exactly this: a mic
+    /// toggle logged ACTUATED-VIA-MINIMIZED-WINDOW/on, and roughly two minutes
+    /// later, with zero intervening successful presses recorded, the same
+    /// control read back muted again. That single data point is why this
+    /// exists — see CLAUDE.md gotcha 9.
+    private var minimizedActuationBelief: [MeetingControl: (state: ToggleState, at: Date)] = [:]
+    /// How long to keep watching a belief before assuming it settled and
+    /// dropping it silently. Generous on purpose: whatever mechanism produced
+    /// the observed revert (if it recurs) is not known to be fast.
+    private static let revertWatchWindow: TimeInterval = 30
+
+    /// The control a hotkey action reads/writes. `nil` has no meaning here —
+    /// every case maps to exactly one control; it exists only to pair with
+    /// the `HotkeyAction` cases file-locally without a forced switch in every
+    /// caller.
+    private static func control(for action: HotkeyAction) -> MeetingControl {
+        switch action {
+        case .toggleMic, .pushToTalk: return .mic
+        case .toggleCamera: return .camera
+        case .raiseHand: return .hand
+        }
+    }
 
     init(client: MeetingClient) {
         self.client = client
@@ -147,13 +173,37 @@ final class MeetingWorker: @unchecked Sendable {
         guard client.isInMeeting else {
             return MeetingSnapshot(accessibilityGranted: AX.isTrusted)
         }
+        let mic = client.state(of: .mic)
+        let camera = client.state(of: .camera)
+        let hand = client.state(of: .hand)
+        checkForSilentRevert(.mic, current: mic)
+        checkForSilentRevert(.camera, current: camera)
+        checkForSilentRevert(.hand, current: hand)
         return MeetingSnapshot(
             inMeeting: true,
-            mic: client.state(of: .mic),
-            camera: client.state(of: .camera),
-            hand: client.state(of: .hand),
+            mic: mic,
+            camera: camera,
+            hand: hand,
             accessibilityGranted: true
         )
+    }
+
+    /// Compares a freshly read state against a still-active minimized-window
+    /// belief for the same control. `.unknown` proves nothing either way —
+    /// the tree going briefly unreadable is routine — so it neither confirms
+    /// nor clears the watch.
+    private func checkForSilentRevert(_ control: MeetingControl, current: ToggleState) {
+        guard let belief = minimizedActuationBelief[control] else { return }
+        let elapsed = Date().timeIntervalSince(belief.at)
+        guard elapsed <= Self.revertWatchWindow else {
+            minimizedActuationBelief[control] = nil
+            return
+        }
+        guard current != .unknown, current != belief.state else { return }
+        DiagLog.write("REVERTED-AFTER-MINIMIZED-ACTUATION \(control.rawValue) "
+            + "actuatedTo=\(belief.state.rawValue) now=\(current.rawValue) "
+            + "afterMs=\(Int(elapsed * 1000)) " + client.diagnostics)
+        minimizedActuationBelief[control] = nil
     }
 
     /// Returns nil when the phase carries no action (key-up on a toggle).
@@ -177,19 +227,26 @@ final class MeetingWorker: @unchecked Sendable {
                 + "presses=\(result.presses) observed=\(result.finalState.rawValue) "
                 + client.diagnostics)
         }
-        // A reported (not yet reproduced) symptom: a toggle can be verified as
-        // succeeded by reading a minimized meeting window's own controls, while
-        // the real backend state never changed — which the menu bar could then
-        // show confidently and wrongly. Not known to actually happen; logged
-        // only so a recurrence carries hard evidence instead of an account of
-        // which window was in play. Scoped to the momentary toggles a user
+        // A reported (not yet reproduced when this hook was first added, then
+        // reproduced) symptom: a toggle can be verified as succeeded by
+        // reading a minimized meeting window's own controls, while the real
+        // backend state never changed — which the menu bar could then show
+        // confidently and wrongly. Scoped to the momentary toggles a user
         // notices immediately, not push-to-talk, which would otherwise log on
         // every hold. See CLAUDE.md gotcha 9.
-        if let result, result.succeeded, action != .pushToTalk, phase == .began,
-           client.isActingWindowMinimized {
-            DiagLog.write("ACTUATED-VIA-MINIMIZED-WINDOW \(action.rawValue) "
-                + "presses=\(result.presses) observed=\(result.finalState.rawValue) "
-                + client.diagnostics)
+        if let result, result.succeeded, !shouldCancel() {
+            let control = MeetingWorker.control(for: action)
+            // Any successful action on this control is the user (or Actuator)
+            // moving its state on purpose — stop watching whatever belief
+            // predates it, so a later poll can't mistake a legitimate change
+            // for a silent revert.
+            minimizedActuationBelief[control] = nil
+            if action != .pushToTalk, phase == .began, client.isActingWindowMinimized {
+                DiagLog.write("ACTUATED-VIA-MINIMIZED-WINDOW \(action.rawValue) "
+                    + "presses=\(result.presses) observed=\(result.finalState.rawValue) "
+                    + client.diagnostics)
+                minimizedActuationBelief[control] = (result.finalState, Date())
+            }
         }
         return result
     }
