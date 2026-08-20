@@ -12,16 +12,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Two quiet diagnostic lines for a mic/camera toggle acted through a
   minimized Teams window: `ACTUATED-VIA-MINIMIZED-WINDOW` when such a press
   is verified as succeeded, and `REVERTED-AFTER-MINIMIZED-ACTUATION` if that
-  same control's state changes away from what was believed within 30 s with
-  no further hotkey action in between. Reproduced once (2026-08-20): a mic
-  toggle logged as succeeded, then read back as muted again roughly two
-  minutes later with nothing else touching it — strong evidence the press
-  didn't actually take effect, though not fully conclusive (a manual re-mute
-  through Teams' own UI would look identical from the outside). No actuation
-  behaviour changed on the strength of this; pressing through a minimized
-  window is not refused, since doing so would break what looks like a common,
-  otherwise-working usage pattern. See gotcha 9 ("Nine gotchas that will bite
-  you") in `CLAUDE.md`.
+  same control's state changes away from what was believed with no further
+  hotkey action in between. Reproduced twice (2026-08-20): a mic toggle
+  logged as succeeded, then read back in the opposite state roughly two
+  minutes later (first occurrence) and again roughly ten minutes later
+  (second occurrence), both times with nothing else touching it — strong
+  evidence the press didn't actually take effect, though not fully
+  conclusive (a manual re-toggle through Teams' own UI would look identical
+  from the outside). Both real occurrences exceeded the diagnostic's
+  original 30-second watch window, so it was widened to 15 minutes. No
+  actuation behaviour changed on the strength of this; pressing through a
+  minimized window is not refused, since doing so would break what looks
+  like a common, otherwise-working usage pattern. See gotcha 9 ("Ten
+  gotchas that will bite you") in `CLAUDE.md`.
+- Documented (no code change) why an off-Space Teams window can have zero
+  usable meeting controls even though its accessibility tree is fully
+  populated: Teams only hosts the meeting toolbar in one window at a time,
+  so once a meeting is popped into the separate compact "mini" window, the
+  main window's DOM simply never contains those controls, regardless of
+  Space or minimized state. See gotcha 9 in `CLAUDE.md`.
+- Documented (no code change) a genuine macOS Accessibility limitation: a
+  window in native fullscreen on an inactive Space is invisible to
+  `kAXWindowsAttribute` even though it still exists at the WindowServer
+  level — confirmed live and against known platform behaviour, with no
+  public-API workaround. Likely the real explanation for an earlier report
+  that hotkeys stop working while sharing full-screen. See gotcha 10 in
+  `CLAUDE.md`.
 
 ## [0.2.1] — 2026-08-19
 

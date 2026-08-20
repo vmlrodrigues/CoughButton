@@ -174,9 +174,20 @@ Established by measurement, not documentation — see FINDINGS.md and `probe/`.
    plus two diagnostic lines — `ACTUATED-VIA-MINIMIZED-WINDOW` (toggles only,
    not push-to-talk) when a press through a minimized window is verified as
    succeeded, and `REVERTED-AFTER-MINIMIZED-ACTUATION` if that same control's
-   state changes away from what was believed within 30 s with no further
-   CoughButton action recorded in between. The next occurrence should produce
-   both lines back to back, which would settle this definitively.
+   state changes away from what was believed with no further CoughButton
+   action recorded in between. **Reproduced a second time** (2026-08-20,
+   ~18:07): a mute logged `ACTUATED-VIA-MINIMIZED-WINDOW toggleMic ...
+   observed=off`, and roughly ten minutes later — again zero further
+   CoughButton actions logged — a manual probe read the same control back as
+   unmuted. Both real occurrences (~2 min, then ~10 min) blew straight
+   through the diagnostic's original 30-second watch window, so
+   `revertWatchWindow` was widened to 15 minutes; the *next* occurrence should
+   now produce both log lines back to back automatically. Neither occurrence
+   rules out the user (or another device) manually re-toggling through
+   Teams' own UI in between — that ambiguity still stands — but two
+   independent reproductions, in opposite directions, both while acting
+   through a minimized window and nothing else, is stronger evidence than
+   one.
 10. **A window in native macOS fullscreen on an inactive Space is completely
     invisible to `kAXWindowsAttribute` — confirmed, and there is no public-API
     fix.** This is different from gotcha 9: an ordinary windowed Teams window

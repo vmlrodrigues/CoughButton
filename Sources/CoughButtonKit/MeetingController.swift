@@ -98,16 +98,20 @@ final class MeetingWorker: @unchecked Sendable {
     /// minimized window: which state we believe the control now holds, and
     /// when. Compared against every later poll read (`readSnapshot`) to catch
     /// the control reverting on its own with no further CoughButton action in
-    /// between — a live reproduction on 2026-08-20 found exactly this: a mic
-    /// toggle logged ACTUATED-VIA-MINIMIZED-WINDOW/on, and roughly two minutes
-    /// later, with zero intervening successful presses recorded, the same
-    /// control read back muted again. That single data point is why this
-    /// exists — see CLAUDE.md gotcha 9.
+    /// between — reproduced twice on 2026-08-20: a mic toggle logged
+    /// ACTUATED-VIA-MINIMIZED-WINDOW, and later, with zero intervening
+    /// successful presses recorded, the same control read back the opposite
+    /// state. The first occurrence took roughly two minutes; the second, an
+    /// unmute reverting back to muted, took roughly ten. Neither would have
+    /// been caught by the 30-second window this constant originally shipped
+    /// with — see CLAUDE.md gotcha 9.
     private var minimizedActuationBelief: [MeetingControl: (state: ToggleState, at: Date)] = [:]
     /// How long to keep watching a belief before assuming it settled and
-    /// dropping it silently. Generous on purpose: whatever mechanism produced
-    /// the observed revert (if it recurs) is not known to be fast.
-    private static let revertWatchWindow: TimeInterval = 30
+    /// dropping it silently. Widened from an initial 30s to 15 minutes after
+    /// both real reproductions (~2 min and ~10 min) blew straight through the
+    /// original window — whatever mechanism produces this is not fast, and a
+    /// diagnostic log line is cheap even if a belief outlives its usefulness.
+    private static let revertWatchWindow: TimeInterval = 15 * 60
 
     /// The control a hotkey action reads/writes. `nil` has no meaning here —
     /// every case maps to exactly one control; it exists only to pair with
