@@ -286,7 +286,8 @@ final class MeetingWorkerTests: XCTestCase {
         let client = FakeMeetingClient()
         client.actingWindowIsMinimized = true
         client.states[.mic] = .off
-        let worker = MeetingWorker(client: client)
+        let notifier = FakeRevertNotifier()
+        let worker = MeetingWorker(client: client, revertNotifier: notifier)
 
         _ = worker.apply(.toggleMic, phase: .began)
         XCTAssertEqual(client.state(of: .mic), .on, "the fake's own toggle should have flipped it")
@@ -300,6 +301,10 @@ final class MeetingWorkerTests: XCTestCase {
             newLogContent(since: before).contains("REVERTED-AFTER-MINIMIZED-ACTUATION mic actuatedTo=on now=off"),
             "a control reverting with no intervening CoughButton action must be logged"
         )
+        XCTAssertEqual(notifier.notifications.count, 1, "the user-facing nudge must fire alongside the log line")
+        XCTAssertEqual(notifier.notifications.first?.control, .mic)
+        XCTAssertEqual(notifier.notifications.first?.actuatedTo, .on)
+        XCTAssertEqual(notifier.notifications.first?.now, .off)
     }
 
     /// The common case: the control keeps reading back what was believed —
@@ -309,7 +314,8 @@ final class MeetingWorkerTests: XCTestCase {
         let client = FakeMeetingClient()
         client.actingWindowIsMinimized = true
         client.states[.mic] = .off
-        let worker = MeetingWorker(client: client)
+        let notifier = FakeRevertNotifier()
+        let worker = MeetingWorker(client: client, revertNotifier: notifier)
 
         _ = worker.apply(.toggleMic, phase: .began)
 
@@ -318,6 +324,7 @@ final class MeetingWorkerTests: XCTestCase {
         _ = worker.readSnapshot()
 
         XCTAssertFalse(newLogContent(since: before).contains("REVERTED-AFTER-MINIMIZED-ACTUATION"))
+        XCTAssertTrue(notifier.notifications.isEmpty, "no revert means no nudge")
     }
 
     /// A later, intentional toggle of the same control — even through a
@@ -328,7 +335,8 @@ final class MeetingWorkerTests: XCTestCase {
         let client = FakeMeetingClient()
         client.actingWindowIsMinimized = true
         client.states[.mic] = .off
-        let worker = MeetingWorker(client: client)
+        let notifier = FakeRevertNotifier()
+        let worker = MeetingWorker(client: client, revertNotifier: notifier)
 
         _ = worker.apply(.toggleMic, phase: .began) // off -> on, belief recorded
 
@@ -339,6 +347,7 @@ final class MeetingWorkerTests: XCTestCase {
         _ = worker.readSnapshot()
 
         XCTAssertFalse(newLogContent(since: before).contains("REVERTED-AFTER-MINIMIZED-ACTUATION"))
+        XCTAssertTrue(notifier.notifications.isEmpty, "a legitimate later toggle must not trigger the nudge")
     }
 
     /// `.unknown` (a momentarily unreadable tree) must neither confirm nor
@@ -349,7 +358,8 @@ final class MeetingWorkerTests: XCTestCase {
         let client = FakeMeetingClient()
         client.actingWindowIsMinimized = true
         client.states[.mic] = .off
-        let worker = MeetingWorker(client: client)
+        let notifier = FakeRevertNotifier()
+        let worker = MeetingWorker(client: client, revertNotifier: notifier)
 
         _ = worker.apply(.toggleMic, phase: .began) // belief: mic = on
 
@@ -357,12 +367,14 @@ final class MeetingWorkerTests: XCTestCase {
         let duringBlip = logSizeNow()
         _ = worker.readSnapshot()
         XCTAssertFalse(newLogContent(since: duringBlip).contains("REVERTED-AFTER-MINIMIZED-ACTUATION"))
+        XCTAssertTrue(notifier.notifications.isEmpty, "an unreadable tree must not trigger the nudge")
 
         client.reportsUnknown = false
         client.states[.mic] = .off
         let afterBlip = logSizeNow()
         _ = worker.readSnapshot()
         XCTAssertTrue(newLogContent(since: afterBlip).contains("REVERTED-AFTER-MINIMIZED-ACTUATION"))
+        XCTAssertEqual(notifier.notifications.count, 1, "the nudge fires once the control becomes readable again")
     }
 
     // MARK: Log helpers

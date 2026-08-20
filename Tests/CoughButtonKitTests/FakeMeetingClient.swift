@@ -54,3 +54,15 @@ final class FakeMeetingClient: MeetingClient {
 
 /// No-op wait, so retry logic runs at full speed in tests.
 let instantly: (TimeInterval) -> Void = { _ in }
+
+/// Records revert notifications without touching UNUserNotificationCenter,
+/// so tests can assert the user-facing nudge fires exactly when the log line
+/// does — and never otherwise.
+final class FakeRevertNotifier: RevertNotifying {
+    private(set) var notifications: [(control: MeetingControl, actuatedTo: ToggleState, now: ToggleState)] = []
+
+    func notifyRevert(control: MeetingControl, actuatedTo: ToggleState, now: ToggleState) {
+        notifications.append((control, actuatedTo, now))
+    }
+}
+

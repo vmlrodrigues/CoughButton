@@ -187,7 +187,20 @@ Established by measurement, not documentation — see FINDINGS.md and `probe/`.
    Teams' own UI in between — that ambiguity still stands — but two
    independent reproductions, in opposite directions, both while acting
    through a minimized window and nothing else, is stronger evidence than
-   one.
+   one. Given that ambiguity, refusing to actuate through a minimized window
+   was rejected (it would break what looks like a normal daily setup — main
+   window on another Space, mini window minimized — on the strength of two
+   still-ambiguous data points) in favour of a cheap, reversible, purely
+   additive nudge: `RevertNotifier.swift`'s `SystemRevertNotifier` posts a
+   one-time-authorized `UNUserNotificationCenter` alert whenever
+   `REVERTED-AFTER-MINIMIZED-ACTUATION` fires, naming the control and what it
+   reverted to. It changes nothing about actuation or the live glyph — the
+   glyph is already re-read fresh every poll tick and was never wrong in the
+   moment — it only makes the *retrospective* "a past success report may have
+   been wrong" case visible to the user instead of living only in the log
+   file. It inherits the same false-positive risk as the underlying
+   detector: a legitimate manual re-toggle via Teams' own UI inside the
+   15-minute belief window would also trigger it.
 10. **A window in native macOS fullscreen on an inactive Space is completely
     invisible to `kAXWindowsAttribute` — confirmed, and there is no public-API
     fix.** This is different from gotcha 9: an ordinary windowed Teams window

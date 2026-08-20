@@ -25,6 +25,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   minimized window is not refused, since doing so would break what looks
   like a common, otherwise-working usage pattern. See gotcha 9 ("Ten
   gotchas that will bite you") in `CLAUDE.md`.
+- A user-facing macOS notification when `REVERTED-AFTER-MINIMIZED-ACTUATION`
+  fires, naming the control and what it silently reverted to
+  (`RevertNotifier.swift`, `SystemRevertNotifier`). Purely additive: it
+  doesn't change actuation or the live menu-bar glyph (already accurate on
+  every poll tick), it only surfaces the retrospective "a past success
+  report may have been wrong" case that previously lived only in the log
+  file. Requests notification authorization once, lazily, on first use. The
+  first launch after updating will show a one-time macOS permission prompt.
+  Shares the underlying detector's known false-positive risk: a legitimate
+  manual re-toggle via Teams' own UI within the 15-minute belief window
+  would also trigger it.
 - Documented (no code change) why an off-Space Teams window can have zero
   usable meeting controls even though its accessibility tree is fully
   populated: Teams only hosts the meeting toolbar in one window at a time,

@@ -82,6 +82,7 @@ enum Tuning {
 final class MeetingWorker: @unchecked Sendable {
 
     private let client: MeetingClient
+    private let revertNotifier: RevertNotifying
     private var misses = 0
     /// Miss count at the moment the menu bar actually collapsed to "no
     /// meeting" (0 while that hasn't happened this outage). Lets recovery log
@@ -125,8 +126,9 @@ final class MeetingWorker: @unchecked Sendable {
         }
     }
 
-    init(client: MeetingClient) {
+    init(client: MeetingClient, revertNotifier: RevertNotifying = SystemRevertNotifier()) {
         self.client = client
+        self.revertNotifier = revertNotifier
     }
 
     func tick() -> MeetingSnapshot? {
@@ -207,6 +209,11 @@ final class MeetingWorker: @unchecked Sendable {
         DiagLog.write("REVERTED-AFTER-MINIMIZED-ACTUATION \(control.rawValue) "
             + "actuatedTo=\(belief.state.rawValue) now=\(current.rawValue) "
             + "afterMs=\(Int(elapsed * 1000)) " + client.diagnostics)
+        // The log line is the permanent record; this is an additional,
+        // best-effort nudge so the user has a chance to notice before they
+        // otherwise would — the live glyph is already correct by the very
+        // next poll tick regardless, so this is purely retrospective.
+        revertNotifier.notifyRevert(control: control, actuatedTo: belief.state, now: current)
         minimizedActuationBelief[control] = nil
     }
 
