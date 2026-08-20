@@ -36,9 +36,11 @@ command — don't "fix" it by requiring a `sudo xcode-select -s`.
 **Never show or report a state that hasn't been verified.** The failure this app
 exists to prevent is believing you're muted while you're live. Concretely:
 
-- Every action goes through `Actuator`, which presses and then re-reads, retries
-  once against a freshly-discovered element, and reports failure rather than
-  assuming success.
+- Every action goes through `Actuator`, which presses once and then re-reads.
+  An undeliverable press keeps re-discovering within its delivery budget, but
+  an accepted press is never repeated: `AXPress == success` proves delivery,
+  not that Teams has applied it, and a late first press plus a retry can cancel
+  out. If the requested state cannot be verified, report failure.
 - `ToggleState.unknown` is a first-class value that reaches the UI as an orange
   glyph. Do not "helpfully" collapse it to `.off`.
 - Push-to-talk release resolves unknown → **muted** (`pushToTalkRestoreTarget`),
@@ -166,41 +168,40 @@ Established by measurement, not documentation — see FINDINGS.md and `probe/`.
    would look identical from the outside. Chromium's Page Visibility
    throttling affects timers and `rAF`, not synchronous click dispatch,
    which weakens but doesn't rule out a suspended-renderer explanation
-   either. No actuation behaviour has been changed on the strength of this —
-   pressing through a minimized window is not yet refused, since doing so
-   would break a seemingly common and otherwise-working usage pattern (main
-   window on another Space, mini window minimized) on the strength of one
-   incident. Observability was extended instead: `MeetingClient.isActingWindowMinimized`
-   plus two diagnostic lines — `ACTUATED-VIA-MINIMIZED-WINDOW` (toggles only,
-   not push-to-talk) when a press through a minimized window is verified as
-   succeeded, and `REVERTED-AFTER-MINIMIZED-ACTUATION` if that same control's
-   state changes away from what was believed with no further CoughButton
-   action recorded in between. **Reproduced a second time** (2026-08-20,
-   ~18:07): a mute logged `ACTUATED-VIA-MINIMIZED-WINDOW toggleMic ...
-   observed=off`, and roughly ten minutes later — again zero further
-   CoughButton actions logged — a manual probe read the same control back as
-   unmuted. Both real occurrences (~2 min, then ~10 min) blew straight
-   through the diagnostic's original 30-second watch window, so
-   `revertWatchWindow` was widened to 15 minutes; the *next* occurrence should
-   now produce both log lines back to back automatically. Neither occurrence
-   rules out the user (or another device) manually re-toggling through
-   Teams' own UI in between — that ambiguity still stands — but two
-   independent reproductions, in opposite directions, both while acting
-   through a minimized window and nothing else, is stronger evidence than
-   one. Given that ambiguity, refusing to actuate through a minimized window
-   was rejected (it would break what looks like a normal daily setup — main
-   window on another Space, mini window minimized — on the strength of two
-   still-ambiguous data points) in favour of a cheap, reversible, purely
-   additive nudge: `RevertNotifier.swift`'s `SystemRevertNotifier` posts a
-   one-time-authorized `UNUserNotificationCenter` alert whenever
-   `REVERTED-AFTER-MINIMIZED-ACTUATION` fires, naming the control and what it
-   reverted to. It changes nothing about actuation or the live glyph — the
-   glyph is already re-read fresh every poll tick and was never wrong in the
-   moment — it only makes the *retrospective* "a past success report may have
-   been wrong" case visible to the user instead of living only in the log
-   file. It inherits the same false-positive risk as the underlying
-   detector: a legitimate manual re-toggle via Teams' own UI inside the
-   15-minute belief window would also trigger it.
+   either. Initial handling was diagnostic only:
+   `ACTUATED-VIA-MINIMIZED-WINDOW` recorded a verified toggle and
+   `REVERTED-AFTER-MINIMIZED-ACTUATION` recorded a later mismatch. **Reproduced
+   a second time** (2026-08-20, ~18:07): a mute logged as observed `off`, and
+   roughly ten minutes later — again zero further CoughButton actions logged —
+   a manual probe read the same control back as unmuted. Both real occurrences
+   (~2 min, then ~10 min) exceeded the diagnostic's original 30-second watch,
+   so `revertWatchWindow` was widened to 15 minutes.
+
+   A later critical review found the concrete condition the first analysis
+   missed: **both real "successes" required two accepted presses** (`presses=2`).
+   `AXPress == success` only proves that Accessibility delivered the action.
+   The old actuator waited 0.5 s, then interpreted "desired state not observed
+   yet" as permission to refresh and press again. If the first accepted press
+   landed late, it could undo the retry; a minimized WebView could also update
+   its local label optimistically before backend state won later. The fix
+   removes both variables:
+
+   - `Actuator.maxPresses` is now 1. Missing controls are still repeatedly
+     rediscovered inside the delivery window, but once a press is accepted it
+     is never duplicated. An unobserved result fails honestly.
+   - If the acting Teams window is minimized, `MeetingWorker` temporarily clears
+     `AXMinimized`, waits 100 ms for the renderer to resume, performs and
+     verifies the action, then restores that exact window to the Dock. A live
+     no-press probe confirmed this does not activate Teams, change the
+     foreground app, or switch Spaces. The successful-action diagnostic is now
+     `ACTUATED-FROM-MINIMIZED-WINDOW` and records whether waking succeeded.
+
+   Refusing minimized-window actuation entirely remains rejected because the
+   compact window is often the only public-AX control surface. The 15-minute
+   detector and `SystemRevertNotifier` remain as a backstop until this change
+   has survived real use. They retain one known ambiguity: a legitimate manual
+   re-toggle through Teams' UI during the belief window is indistinguishable
+   from a silent revert and would trigger the notification.
 10. **A window in native macOS fullscreen on an inactive Space is completely
     invisible to `kAXWindowsAttribute` — confirmed, and there is no public-API
     fix.** This is different from gotcha 9: an ordinary windowed Teams window
@@ -244,7 +245,7 @@ Sources/CoughButtonKit/
   AX.swift               thin non-throwing wrapper over the C Accessibility API
   MeetingClient.swift    MeetingClient protocol + ControlLabels (the inversion)
   TeamsAXClient.swift    the Teams adapter — DOM ids, meeting-window scoping
-  Actuator.swift         press-then-verify, retry, honest failure. Injectable wait
+  Actuator.swift         one press, then verify or fail honestly. Injectable wait
   MeetingController.swift @MainActor published state + queue-confined MeetingWorker
   HotkeyEngine.swift     CGEventTap (key-up is why, not RegisterEventHotKey)
   Shortcut.swift         chord value type, normalisation, ⌃⌥⇧⌘ display
@@ -304,10 +305,11 @@ probe/                   the AX investigation tools (axdump, axctl, …) — sti
 
 ## Testing
 
-`Tests/CoughButtonKitTests` — 78 tests, no Teams required. `FakeMeetingClient`
+`Tests/CoughButtonKitTests` — 101 tests, no Teams required. `FakeMeetingClient`
 models the cases that actually bite: presses that are accepted but don't take
 (stale element), presses that can't be delivered, and unreadable state. Keep
-`Actuator`'s `wait` injectable so retry logic runs at full speed.
+`Actuator`'s `wait` injectable so delivery and verification logic runs at full
+speed.
 
 The UI seam is deliberate: anything worth testing lives behind `MeetingClient`
 or in a pure function. Prefer adding logic there over in a view.

@@ -20,22 +20,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   evidence the press didn't actually take effect, though not fully
   conclusive (a manual re-toggle through Teams' own UI would look identical
   from the outside). Both real occurrences exceeded the diagnostic's
-  original 30-second watch window, so it was widened to 15 minutes. No
-  actuation behaviour changed on the strength of this; pressing through a
-  minimized window is not refused, since doing so would break what looks
-  like a common, otherwise-working usage pattern. See gotcha 9 ("Ten
-  gotchas that will bite you") in `CLAUDE.md`.
+  original 30-second watch window, so it was widened to 15 minutes. See
+  gotcha 9 ("Ten gotchas that will bite you") in `CLAUDE.md`.
 - A user-facing macOS notification when `REVERTED-AFTER-MINIMIZED-ACTUATION`
   fires, naming the control and what it silently reverted to
   (`RevertNotifier.swift`, `SystemRevertNotifier`). Purely additive: it
   doesn't change actuation or the live menu-bar glyph (already accurate on
   every poll tick), it only surfaces the retrospective "a past success
   report may have been wrong" case that previously lived only in the log
-  file. Requests notification authorization once, lazily, on first use. The
-  first launch after updating will show a one-time macOS permission prompt.
-  Shares the underlying detector's known false-positive risk: a legitimate
-  manual re-toggle via Teams' own UI within the 15-minute belief window
-  would also trigger it.
+  file. Requests notification authorization once, lazily, when the first
+  revert is detected. Shares the underlying detector's known false-positive
+  risk: a legitimate manual re-toggle via Teams' own UI within the 15-minute
+  belief window would also trigger it.
 - Documented (no code change) why an off-Space Teams window can have zero
   usable meeting controls even though its accessibility tree is fully
   populated: Teams only hosts the meeting toolbar in one window at a time,
@@ -49,6 +45,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   public-API workaround. Likely the real explanation for an earlier report
   that hotkeys stop working while sharing full-screen. See gotcha 10 in
   `CLAUDE.md`.
+
+### Fixed
+
+- Removed the second accepted `AXPress` from every actuation. Both real
+  minimized-window failures logged `presses=2`: the old actuator waited for
+  0.5 seconds, then treated an accepted press whose result was not yet visible
+  as permission to press again. Because AX success proves delivery rather than
+  application, a late first press could undo the retry. Missing controls are
+  still re-discovered throughout the delivery window, but after one accepted
+  press CoughButton now either verifies the requested state or fails honestly.
+- Hardened actions when the compact Teams meeting window is minimized and is
+  the only accessible control surface. CoughButton now temporarily wakes that
+  exact window without activating Teams or switching Spaces, allows 100 ms for
+  its WebView renderer to resume, performs and verifies one press, then restores
+  the window to the Dock. A live no-press probe confirmed the foreground app
+  and Teams activation state remain unchanged and the window is re-minimized.
+  The existing 15-minute silent-revert detector remains enabled as a backstop.
 
 ## [0.2.1] — 2026-08-19
 

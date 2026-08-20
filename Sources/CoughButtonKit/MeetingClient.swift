@@ -48,16 +48,28 @@ public protocol MeetingClient: AnyObject {
 
     /// Whether the window currently backing actuation is minimized. Cheap by
     /// contract — same constraint as `isInMeeting`. Exists so a diagnostic line
-    /// can be attached to an action taken through a minimized window, since it
-    /// is not yet known whether that is ever unsafe (see CLAUDE.md gotcha 9).
+    /// can be attached to an action originating from a minimized window.
     /// Defaults to `false` so clients that have no notion of "minimized" don't
     /// need to implement it.
     var isActingWindowMinimized: Bool { get }
+
+    /// Temporarily makes a minimized acting window renderable without activating
+    /// the meeting app. Returns whether the window was minimized and was restored
+    /// by `restoreActingWindowAfterAction()`.
+    ///
+    /// Teams' compact WebView remains AX-readable while minimized, but real
+    /// presses through it have twice read back as successful and later reverted.
+    /// Waking the window removes that renderer-suspension variable while keeping
+    /// the user's foreground app and Space unchanged.
+    func prepareActingWindowForAction() -> Bool
+    func restoreActingWindowAfterAction()
 }
 
 public extension MeetingClient {
     var diagnostics: String { "" }
     var isActingWindowMinimized: Bool { false }
+    func prepareActingWindowForAction() -> Bool { false }
+    func restoreActingWindowAfterAction() {}
 }
 
 // ---------------------------------------------------------------------------

@@ -224,12 +224,25 @@ final class MeetingWorker: @unchecked Sendable {
         deadline: Date? = nil,
         shouldCancel: @escaping () -> Bool = { false }
     ) -> ActuationResult? {
+        guard action == .pushToTalk || phase == .began else { return nil }
+        let originatedMinimized = client.isActingWindowMinimized
+        let wokeWindow = originatedMinimized && client.prepareActingWindowForAction()
+        defer {
+            if wokeWindow {
+                client.restoreActingWindowAfterAction()
+            }
+        }
         let result = perform(
             action,
             phase: phase,
             deadline: deadline,
             shouldCancel: shouldCancel
         )
+        // Restore before collecting diagnostics so the line describes the
+        // user's actual Dock-minimized topology, not our transient wake state.
+        if wokeWindow {
+            client.restoreActingWindowAfterAction()
+        }
         // Only failures are recorded. A quiet log means a quiet app; anything in
         // it is a real "the hotkey didn't register" event with the window
         // context attached, which beats trying to recall it days later.
@@ -252,9 +265,10 @@ final class MeetingWorker: @unchecked Sendable {
             // predates it, so a later poll can't mistake a legitimate change
             // for a silent revert.
             minimizedActuationBelief[control] = nil
-            if action != .pushToTalk, phase == .began, client.isActingWindowMinimized {
-                DiagLog.write("ACTUATED-VIA-MINIMIZED-WINDOW \(action.rawValue) "
+            if action != .pushToTalk, phase == .began, originatedMinimized {
+                DiagLog.write("ACTUATED-FROM-MINIMIZED-WINDOW \(action.rawValue) "
                     + "presses=\(result.presses) observed=\(result.finalState.rawValue) "
+                    + "woke=\(wokeWindow) "
                     + client.diagnostics)
                 minimizedActuationBelief[control] = (result.finalState, Date())
             }

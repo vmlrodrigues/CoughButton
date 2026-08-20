@@ -27,18 +27,18 @@ final class ActuatorTests: XCTestCase {
         XCTAssertEqual(result.finalState, .on)
     }
 
-    /// A press that is accepted but doesn't take — the stale-reference case.
-    /// The actuator should re-discover and try again rather than believe it.
-    func testEnsureRetriesAfterSwallowedPress() {
+    /// An accepted press that is not observed may still land late. Pressing
+    /// again would risk undoing it, so fail honestly after one attempt.
+    func testEnsureDoesNotRetryAnAcceptedButUnobservedPress() {
         let client = FakeMeetingClient()
         client.states[.camera] = .off
         client.pressesToSwallow = 1
 
         let result = Actuator.ensure(.camera, is: .on, on: client, wait: instantly)
 
-        XCTAssertTrue(result.succeeded)
-        XCTAssertEqual(result.presses, 2, "should press again after the first was swallowed")
-        XCTAssertEqual(client.refreshCount, 1, "should re-discover between attempts")
+        XCTAssertFalse(result.succeeded)
+        XCTAssertEqual(result.presses, 1, "an accepted press must never be duplicated")
+        XCTAssertEqual(client.refreshCount, 1, "the final state is still re-read through a fresh element")
     }
 
     func testEnsureReportsFailureWhenPressCannotBeDelivered() {

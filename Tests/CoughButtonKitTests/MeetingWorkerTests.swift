@@ -240,9 +240,54 @@ final class MeetingWorkerTests: XCTestCase {
         _ = worker.apply(.toggleMic, phase: .began)
 
         XCTAssertTrue(
-            newLogContent(since: before).contains("ACTUATED-VIA-MINIMIZED-WINDOW toggleMic"),
+            newLogContent(since: before).contains("ACTUATED-FROM-MINIMIZED-WINDOW toggleMic"),
             "a succeeded toggle through a minimized window must be logged for evidence"
         )
+        XCTAssertEqual(client.prepareForActionCount, 1)
+        XCTAssertEqual(client.restoreAfterActionCount, 1)
+        XCTAssertTrue(client.actingWindowIsMinimized, "the user's Dock-minimized state must be restored")
+    }
+
+    func testMinimizedToggleNeverRetriesAnAcceptedPress() throws {
+        try requireAccessibility()
+        let client = FakeMeetingClient()
+        client.actingWindowIsMinimized = true
+        client.states[.mic] = .off
+        client.pressesToSwallow = 1
+        let worker = MeetingWorker(client: client)
+
+        let result = worker.apply(.toggleMic, phase: .began)
+
+        XCTAssertFalse(result?.succeeded ?? true)
+        XCTAssertEqual(client.pressCount, 1, "a delayed first press must not be followed by a cancelling retry")
+        XCTAssertTrue(client.actingWindowIsMinimized, "the user's Dock-minimized state must be restored on failure")
+    }
+
+    func testWakeFailureStillActsOnceAndLeavesWindowMinimized() throws {
+        try requireAccessibility()
+        let client = FakeMeetingClient()
+        client.actingWindowIsMinimized = true
+        client.canWakeActingWindow = false
+        client.states[.mic] = .off
+        let worker = MeetingWorker(client: client)
+
+        let result = worker.apply(.toggleMic, phase: .began)
+
+        XCTAssertTrue(result?.succeeded ?? false)
+        XCTAssertEqual(client.pressCount, 1)
+        XCTAssertEqual(client.restoreAfterActionCount, 0)
+        XCTAssertTrue(client.actingWindowIsMinimized)
+    }
+
+    func testToggleKeyUpDoesNotWakeTheMinimizedWindow() throws {
+        try requireAccessibility()
+        let client = FakeMeetingClient()
+        client.actingWindowIsMinimized = true
+        let worker = MeetingWorker(client: client)
+
+        XCTAssertNil(worker.apply(.toggleMic, phase: .ended))
+        XCTAssertEqual(client.prepareForActionCount, 0)
+        XCTAssertEqual(client.restoreAfterActionCount, 0)
     }
 
     /// The common case — not minimized — must stay quiet, matching the
@@ -257,7 +302,9 @@ final class MeetingWorkerTests: XCTestCase {
         let before = logSizeNow()
         _ = worker.apply(.toggleCamera, phase: .began)
 
-        XCTAssertFalse(newLogContent(since: before).contains("ACTUATED-VIA-MINIMIZED-WINDOW"))
+        XCTAssertFalse(newLogContent(since: before).contains("ACTUATED-FROM-MINIMIZED-WINDOW"))
+        XCTAssertEqual(client.prepareForActionCount, 0)
+        XCTAssertEqual(client.restoreAfterActionCount, 0)
     }
 
     /// Push-to-talk fires on every hold; scoped out of the minimized-window
@@ -272,7 +319,7 @@ final class MeetingWorkerTests: XCTestCase {
         let before = logSizeNow()
         _ = worker.apply(.pushToTalk, phase: .began)
 
-        XCTAssertFalse(newLogContent(since: before).contains("ACTUATED-VIA-MINIMIZED-WINDOW"))
+        XCTAssertFalse(newLogContent(since: before).contains("ACTUATED-FROM-MINIMIZED-WINDOW"))
     }
 
     /// The scenario that actually happened on 2026-08-20: a mic toggle logged

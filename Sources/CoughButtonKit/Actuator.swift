@@ -40,10 +40,12 @@ public enum Actuator {
     /// How long to watch for a delivered press to actually take effect.
     public static let watchWindow: TimeInterval = 0.5
 
-    /// Deliberately small. A press that Teams applies late must not be pressed
-    /// a second time, or the two cancel out and the mic ends up back where it
-    /// started — so patience is spent on *watching*, not on extra presses.
-    public static let maxPresses = 2
+    /// One accepted press is the hard safety limit. `AXPress == success` only
+    /// proves delivery, not that Teams has applied the change yet. Retrying after
+    /// an accepted-but-not-yet-observed press can make the first land late and
+    /// undo the second. Both real minimized-window failures carried
+    /// `presses=2`, making the old retry actively suspect.
+    public static let maxPresses = 1
 
     /// Drive `control` to `desired`, verifying the change.
     ///
@@ -113,14 +115,18 @@ public enum Actuator {
                 }
             }
 
-            // Delivered but didn't land — the likeliest cause is a reference
-            // from a window Teams has since replaced, so re-discover before
-            // spending the next press.
+            // Delivered but not observed. Re-discover for the final read, but
+            // never infer that "not observed yet" means "safe to press again".
             if shouldCancel() { break attempts }
             if now() < actionDeadline { client.refresh() }
         }
 
-        return ActuationResult(succeeded: false, finalState: client.state(of: control), presses: presses)
+        let finalState = client.state(of: control)
+        return ActuationResult(
+            succeeded: finalState == desired,
+            finalState: finalState,
+            presses: presses
+        )
     }
 
     /// Keeps observing after an earlier opposite-direction press may still land.

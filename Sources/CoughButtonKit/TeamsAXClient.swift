@@ -45,8 +45,12 @@ public final class TeamsAXClient: MeetingClient, @unchecked Sendable {
     private static let knownDOMIdentifiers: Set<String> = [
         DOM.hangup, DOM.mic, DOM.camera, DOM.hand, DOM.share
     ]
+    /// A minimized WebView remains AX-readable before its renderer is fully
+    /// resumed. Give the un-minimize request one frame budget before pressing.
+    private static let minimizedWakeSettle: TimeInterval = 0.1
     private var meetingWindow: AXUIElement?
     private var buttons: [MeetingControl: AXUIElement] = [:]
+    private var minimizedWindowToRestore: AXUIElement?
     /// The DOM id each cached element had *at discovery time*. WebView2/Chromium
     /// can recycle an accessibility node to represent a different DOM element
     /// after a re-render, without invalidating the reference — the same class
@@ -204,6 +208,31 @@ public final class TeamsAXClient: MeetingClient, @unchecked Sendable {
         return AX.press(cached)
     }
 
+    public func prepareActingWindowForAction() -> Bool {
+        guard let meetingWindow,
+              (AX.attribute(meetingWindow, kAXMinimizedAttribute) as? NSNumber)?.boolValue == true
+        else { return false }
+        minimizedWindowToRestore = nil
+        guard AXUIElementSetAttributeValue(
+            meetingWindow,
+            kAXMinimizedAttribute as CFString,
+            kCFBooleanFalse
+        ) == .success else { return false }
+        minimizedWindowToRestore = meetingWindow
+        Thread.sleep(forTimeInterval: Self.minimizedWakeSettle)
+        return true
+    }
+
+    public func restoreActingWindowAfterAction() {
+        guard let window = minimizedWindowToRestore else { return }
+        minimizedWindowToRestore = nil
+        _ = AXUIElementSetAttributeValue(
+            window,
+            kAXMinimizedAttribute as CFString,
+            kCFBooleanTrue
+        )
+    }
+
     /// Shape of the window situation, with no titles — see the protocol note.
     /// This is the context that makes a failed action diagnosable: which window
     /// modes were in play when the controls went missing. The window currently
@@ -232,12 +261,9 @@ public final class TeamsAXClient: MeetingClient, @unchecked Sendable {
     }
 
     /// Cheap signal for whether the window currently backing actuation is
-    /// minimized. Not used to change press/verify behaviour — neither pressing
-    /// nor reading a minimized window's controls is known to be unsafe, only
-    /// reported as *possibly* silently ineffective. Exists purely so a
-    /// diagnostic line can capture hard evidence the next time this is seen,
-    /// rather than relying on an after-the-fact account of which window was in
-    /// play. See CLAUDE.md gotcha 9.
+    /// minimized. MeetingWorker records this before temporarily waking the
+    /// window, so diagnostics describe the user's original setup rather than the
+    /// short-lived state used for actuation. See CLAUDE.md gotcha 9.
     public var isActingWindowMinimized: Bool {
         guard let meetingWindow else { return false }
         return (AX.attribute(meetingWindow, kAXMinimizedAttribute) as? NSNumber)?.boolValue == true

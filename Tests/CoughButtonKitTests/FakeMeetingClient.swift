@@ -20,15 +20,33 @@ final class FakeMeetingClient: MeetingClient {
     var pressUndeliverable = false
     /// Every state read comes back `.unknown`.
     var reportsUnknown = false
-    /// Simulates the reported (unconfirmed) minimized-window scenario: lets a
-    /// test verify MeetingWorker's ACTUATED-VIA-MINIMIZED-WINDOW diagnostic
-    /// fires exactly when it should.
+    /// Simulates an action originating from the minimized compact Teams window.
     var actingWindowIsMinimized = false
+    private(set) var prepareForActionCount = 0
+    private(set) var restoreAfterActionCount = 0
+    /// Whether preparing a minimized acting window succeeds.
+    var canWakeActingWindow = true
+    private var hasPreparedWindowToRestore = false
     /// Applied by `refresh()`, so a test can make re-discovery "fix" things.
     var onRefresh: ((FakeMeetingClient) -> Void)?
 
     var isInMeeting: Bool { inMeeting }
     var isActingWindowMinimized: Bool { actingWindowIsMinimized }
+
+    func prepareActingWindowForAction() -> Bool {
+        prepareForActionCount += 1
+        guard actingWindowIsMinimized, canWakeActingWindow else { return false }
+        actingWindowIsMinimized = false
+        hasPreparedWindowToRestore = true
+        return true
+    }
+
+    func restoreActingWindowAfterAction() {
+        guard hasPreparedWindowToRestore else { return }
+        hasPreparedWindowToRestore = false
+        restoreAfterActionCount += 1
+        actingWindowIsMinimized = true
+    }
 
     func state(of control: MeetingControl) -> ToggleState {
         if reportsUnknown { return .unknown }
@@ -65,4 +83,3 @@ final class FakeRevertNotifier: RevertNotifying {
         notifications.append((control, actuatedTo, now))
     }
 }
-
