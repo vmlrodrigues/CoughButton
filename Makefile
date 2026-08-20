@@ -107,7 +107,7 @@ release: check
 	@spctl --assess --type open --context context:primary-signature --ignore-cache "$(STAGING)/$(APP)" && echo "   Gatekeeper: OK" || echo "   WARNING: Gatekeeper check failed - review signing/entitlements"
 	@echo "-> Tagging + publishing GitHub release..."
 	git tag "v$(VERSION)"
-	$(GIT_PUSH) origin main "v$(VERSION)"
+	$(GIT_PUSH) origin HEAD:main "v$(VERSION)"
 	gh release create "v$(VERSION)" --title "CoughButton v$(VERSION)" --notes "CoughButton v$(VERSION). Download the DMG below and drag CoughButton to Applications." "$(DMG_NAME)"
 	@rm -rf "$(STAGING)"
 	@echo "=== Released v$(VERSION) -> https://github.com/vmlrodrigues/CoughButton/releases/tag/v$(VERSION) ==="

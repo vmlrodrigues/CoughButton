@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] — 2026-08-20
+
 ### Added
 
 - Two quiet diagnostic lines for a mic/camera toggle acted through a
